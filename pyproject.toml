@@ -1,0 +1,42 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "qa-dashboard"
+version = "0.4.0"
+description = "Suite-level pytest HTML dashboard with mitmproxy capture, steps, screenshots, and multi-format export (PDF/CSV/JSON/XLSX/DOCX/ZIP)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "QA Dashboard Team" }]
+classifiers = [
+    "Framework :: Pytest",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Testing",
+]
+dependencies = [
+    "pytest>=7.0",
+    "mitmproxy>=11.0",
+]
+
+[project.optional-dependencies]
+imaging = ["Pillow>=10.0"]
+xlsx = ["openpyxl>=3.1"]
+docx = ["python-docx>=1.1"]
+export = ["openpyxl>=3.1", "python-docx>=1.1"]
+all = ["Pillow>=10.0", "openpyxl>=3.1", "python-docx>=1.1"]
+dev = ["pytest-cov", "ruff", "openpyxl>=3.1", "python-docx>=1.1"]
+
+[project.entry-points.pytest11]
+qa_dashboard = "qa_dashboard.pytest_plugin"
+
+[project.scripts]
+qa-dashboard = "qa_dashboard.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/qa_dashboard"]
+
