@@ -13,11 +13,12 @@ def main(argv: list[str] | None = None) -> int:
     if argv is None:
         argv = sys.argv[1:]
 
-    # Dispatch on first positional. Subcommands ("ingest") take their own
-    # parser; everything else uses the legacy "qa-dashboard <run-dir> ..."
-    # form. This avoids argparse subparser/positional ambiguity.
+    # Dispatch on first positional. Subcommands take their own parsers;
+    # everything else uses the legacy "qa-dashboard <run-dir> ..." form.
     if argv and argv[0] == "ingest":
         return _cmd_ingest(argv[1:])
+    if argv and argv[0] == "scaffold":
+        return _cmd_scaffold(argv[1:])
     return _cmd_default(argv)
 
 
@@ -61,6 +62,54 @@ def _cmd_ingest(argv: list[str]) -> int:
         out = generate_index_html(run_dir, brand_color=args.brand_color)
         print(f"Generated {out}")
     return 0
+
+
+def _cmd_scaffold(argv: list[str]) -> int:
+    """Copy a framework integration file into a target project."""
+    p = argparse.ArgumentParser(
+        prog="qa-dashboard scaffold",
+        description=(
+            "Copy an integration file (e.g. Playwright JS reporter) into "
+            "the current project so it can be referenced from a config file."
+        ),
+    )
+    p.add_argument("target", choices=["playwright"],
+                   help="Which integration to scaffold")
+    p.add_argument("-o", "--output", type=Path, default=None,
+                   help="Destination filename (default: project root)")
+    p.add_argument("--force", action="store_true",
+                   help="Overwrite existing file")
+    args = p.parse_args(argv)
+
+    if args.target == "playwright":
+        from .integrations import playwright as _pw_pkg
+        pkg_dir = Path(_pw_pkg.__file__).parent
+        src = pkg_dir / "qa-dashboard-reporter.js"
+        if not src.exists():
+            print(f"qa-dashboard: bundled reporter not found at {src}",
+                  file=sys.stderr)
+            return 3
+        dst = args.output or Path.cwd() / "qa-dashboard-reporter.js"
+        if dst.exists() and not args.force:
+            print(f"qa-dashboard: {dst} already exists. Use --force to overwrite.",
+                  file=sys.stderr)
+            return 2
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        import shutil
+        shutil.copyfile(src, dst)
+        print(f"Wrote {dst}")
+        print("\nAdd this to your playwright.config.ts (or .js):")
+        print("  reporter: [")
+        print("    ['list'],")
+        print(f"    ['./{dst.name}', {{ outputDir: 'captures' }}],")
+        print("  ],")
+        print("  use: { screenshot: 'only-on-failure', trace: 'retain-on-failure' },")
+        print("\nThen:")
+        print("  npx playwright test")
+        print("  qa-dashboard captures/run_*")
+        print("  open captures/run_*/index.html")
+        return 0
+    return 2
 
 
 def _cmd_default(argv: list[str]) -> int:

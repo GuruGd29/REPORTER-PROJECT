@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "qa-dashboard"
-version = "0.4.0"
+version = "0.5.0"
 description = "Suite-level pytest HTML dashboard with mitmproxy capture, steps, screenshots, and multi-format export (PDF/CSV/JSON/XLSX/DOCX/ZIP)."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -39,4 +39,8 @@ qa-dashboard = "qa_dashboard.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/qa_dashboard"]
+artifacts = [
+    "src/qa_dashboard/report/templates/*",
+    "src/qa_dashboard/integrations/playwright/*",
+]
 

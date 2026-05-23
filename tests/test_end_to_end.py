@@ -447,6 +447,61 @@ def test_ingest_cli(tmp_path):
     assert (runs[0] / "manifest.json").exists()
 
 
+def test_ingest_recursive_screenshot_match(tmp_path):
+    """v0.5: screenshots in nested per-test dirs (Playwright JS style) auto-match."""
+    from qa_dashboard.ingest.junit_xml import ingest_junit_xml
+    xml = tmp_path / "TEST-x.xml"
+    xml.write_text(JUNIT_SUREFIRE_XML, encoding="utf-8")
+    shots = tmp_path / "test-results"
+    # Playwright JS style: per-test subdir, generic png name
+    (shots / "tests-testValidLogin-chromium").mkdir(parents=True)
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 200
+    (shots / "tests-testValidLogin-chromium" / "test-failed-1.png").write_bytes(png)
+    (shots / "tests-testInvalidPassword-chromium").mkdir(parents=True)
+    (shots / "tests-testInvalidPassword-chromium" / "test-failed-1.png").write_bytes(png)
+    run = ingest_junit_xml([xml], out_root=tmp_path / "captures",
+                            screenshots_dir=shots)
+    valid = next(p for p in (run / "tests").glob("*testValidLogin*"))
+    rec = json.loads(valid.read_text())
+    assert len(rec["screenshots"]) == 1, "should pick up nested PNG by parent dir name"
+
+
+def test_scaffold_playwright(tmp_path):
+    """v0.5: `qa-dashboard scaffold playwright` copies the JS reporter."""
+    from qa_dashboard.cli import main
+    out = tmp_path / "qa-dashboard-reporter.js"
+    rc = main(["scaffold", "playwright", "-o", str(out)])
+    assert rc == 0
+    assert out.exists()
+    js = out.read_text(encoding="utf-8")
+    # Sanity checks on the bundled reporter
+    assert "QaDashboardReporter" in js
+    assert "module.exports = QaDashboardReporter" in js
+    assert "schema_version" in js
+    assert "test.step" in js
+
+
+def test_scaffold_playwright_refuses_overwrite(tmp_path):
+    from qa_dashboard.cli import main
+    out = tmp_path / "existing.js"
+    out.write_text("// pre-existing\n", encoding="utf-8")
+    rc = main(["scaffold", "playwright", "-o", str(out)])
+    assert rc == 2  # refused
+    assert out.read_text() == "// pre-existing\n"
+
+    rc2 = main(["scaffold", "playwright", "-o", str(out), "--force"])
+    assert rc2 == 0
+    assert "QaDashboardReporter" in out.read_text()
+
+
+def test_playwright_reporter_js_is_packaged():
+    """The shipped wheel must include the JS file."""
+    from qa_dashboard.integrations import playwright as pw_pkg
+    js_path = Path(pw_pkg.__file__).parent / "qa-dashboard-reporter.js"
+    assert js_path.exists(), f"missing reporter at {js_path}"
+    assert js_path.stat().st_size > 5000, "reporter looks suspiciously small"
+
+
 def test_failing_test_captures_outcome(tmp_path):
     import subprocess
     p = tmp_path / "proj"

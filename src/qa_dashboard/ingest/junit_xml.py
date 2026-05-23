@@ -129,18 +129,37 @@ def _classname_to_file(classname: str) -> str:
 
 
 def _find_screenshots(shots_dir: Path | None, *aliases: str) -> list[Path]:
-    """Return PNGs in ``shots_dir`` whose filename mentions any alias."""
+    """Return PNGs/JPGs in ``shots_dir`` whose filename OR any ancestor
+    directory name mentions an alias.
+
+    Walks recursively so Playwright JS-style ``test-results/<test-title>/
+    test-failed-1.png`` layouts auto-attach: the parent dir name is the
+    test title, which we use for matching even when the filename itself
+    is generic.
+    """
     if not shots_dir or not shots_dir.exists():
         return []
+    norm_aliases = [
+        a for a in (
+            re.sub(r"[^A-Za-z0-9]", "_", x).strip("_").lower() for x in aliases if x
+        ) if a
+    ]
+    if not norm_aliases:
+        return []
     matches: list[Path] = []
-    norm_aliases = [re.sub(r"[^A-Za-z0-9]", "_", a).lower() for a in aliases if a]
-    for p in shots_dir.iterdir():
+    for p in shots_dir.rglob("*"):
         if not p.is_file():
             continue
         if p.suffix.lower() not in (".png", ".jpg", ".jpeg"):
             continue
-        name_norm = re.sub(r"[^A-Za-z0-9]", "_", p.stem).lower()
-        if any(a and a in name_norm for a in norm_aliases):
+        # Build a haystack from the filename + every ancestor dir up to shots_dir
+        parts: list[str] = [p.stem]
+        for ancestor in p.parents:
+            if ancestor == shots_dir or ancestor == shots_dir.parent:
+                break
+            parts.append(ancestor.name)
+        haystack = re.sub(r"[^A-Za-z0-9]", "_", "_".join(parts)).lower()
+        if any(a in haystack for a in norm_aliases):
             matches.append(p)
     return sorted(matches)
 

@@ -98,7 +98,77 @@ pip install qa-dashboard[docx]   # adds python-docx
 pip install qa-dashboard[all]    # everything (Pillow + openpyxl + python-docx)
 ```
 
-## Java / JavaScript integration via `qa-dashboard ingest`
+## Playwright TypeScript / JavaScript — native reporter (v0.5.0)
+
+For richer step-level data than JUnit XML can carry, drop the bundled
+Playwright reporter into your project. One command:
+
+```bash
+cd /your/playwright-ts-project
+qa-dashboard scaffold playwright
+```
+
+That writes `qa-dashboard-reporter.js` to the project root and prints
+the `playwright.config.ts` snippet you need:
+
+```ts
+import { defineConfig } from '@playwright/test';
+
+export default defineConfig({
+  reporter: [
+    ['list'],
+    ['./qa-dashboard-reporter.js', { outputDir: 'captures' }],
+  ],
+  use: {
+    screenshot: 'only-on-failure',
+    trace: 'retain-on-failure',
+  },
+});
+```
+
+Then your normal workflow:
+
+```bash
+npx playwright test
+qa-dashboard captures/run_*       # generates the HTML
+open captures/run_*/index.html
+```
+
+What you get vs. the JUnit XML path:
+
+| Feature | `qa-dashboard ingest` (JUnit) | Native reporter (v0.5.0) |
+|---|---|---|
+| Test results, durations, errors | ✅ | ✅ |
+| Auto-screenshot on failure | ✅ (with `--screenshots-dir`) | ✅ (from Playwright attachments) |
+| **Step / sub-step breakdown** | ❌ | ✅ via `test.step()` |
+| **Sub-step timings** | ❌ | ✅ |
+| Console logs with timestamps + levels | ⚠️ heuristic | ✅ from `stdout`/`stderr` |
+| Per-step screenshot grouping | ❌ | ✅ |
+| Nested step support | ❌ | ✅ |
+
+Tests using Playwright's native step syntax produce full breakdowns:
+
+```ts
+test('login flow', async ({ page }) => {
+  await test.step('Open login page', async () => {
+    await page.goto('/login');
+  });
+  await test.step('Enter credentials', async () => {
+    await page.fill('#email', 'x@y.com');
+    await page.fill('#password', 'pw');
+  });
+  await test.step('Submit and verify', async () => {
+    await page.click('#submit');
+    await expect(page).toHaveURL('/home');
+  });
+});
+```
+
+…shows up as three explicit steps in the dashboard with individual
+timings, nested actions as sub-steps, and any screenshots attached to
+the step where they were taken.
+
+## Java / JavaScript integration via `qa-dashboard ingest` (JUnit XML)
 
 ```bash
 # Maven (Surefire / Failsafe)
