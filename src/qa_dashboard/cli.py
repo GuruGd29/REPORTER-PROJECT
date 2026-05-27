@@ -73,7 +73,7 @@ def _cmd_scaffold(argv: list[str]) -> int:
             "the current project so it can be referenced from a config file."
         ),
     )
-    p.add_argument("target", choices=["playwright"],
+    p.add_argument("target", choices=["playwright", "webdriverio"],
                    help="Which integration to scaffold")
     p.add_argument("-o", "--output", type=Path, default=None,
                    help="Destination filename (default: project root)")
@@ -106,6 +106,38 @@ def _cmd_scaffold(argv: list[str]) -> int:
         print("  use: { screenshot: 'only-on-failure', trace: 'retain-on-failure' },")
         print("\nThen:")
         print("  npx playwright test")
+        print("  qa-dashboard captures/run_*")
+        print("  open captures/run_*/index.html")
+        return 0
+
+    if args.target == "webdriverio":
+        from .integrations import webdriverio as _wdio_pkg
+        pkg_dir = Path(_wdio_pkg.__file__).parent
+        src = pkg_dir / "qa-dashboard-wdio-reporter.js"
+        if not src.exists():
+            print(f"qa-dashboard: bundled reporter not found at {src}",
+                  file=sys.stderr)
+            return 3
+        dst = args.output or Path.cwd() / "qa-dashboard-wdio-reporter.js"
+        if dst.exists() and not args.force:
+            print(f"qa-dashboard: {dst} already exists. Use --force to overwrite.",
+                  file=sys.stderr)
+            return 2
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        import shutil
+        shutil.copyfile(src, dst)
+        print(f"Wrote {dst}")
+        print("\nAdd this to your wdio.conf.(c)js:")
+        print(f"  const QaDashboardReporter = require('./{dst.name}');")
+        print("  exports.config = {")
+        print("    reporters: [")
+        print("      'spec',")
+        print("      [QaDashboardReporter, { outputDir: 'captures' }],")
+        print("    ],")
+        print("    // ...")
+        print("  };")
+        print("\nThen:")
+        print("  npx wdio run wdio.conf.js")
         print("  qa-dashboard captures/run_*")
         print("  open captures/run_*/index.html")
         return 0

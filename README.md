@@ -168,6 +168,50 @@ test('login flow', async ({ page }) => {
 timings, nested actions as sub-steps, and any screenshots attached to
 the step where they were taken.
 
+## WebdriverIO — native reporter (v0.6.0)
+
+For WDIO + Mocha / Jasmine / Cucumber projects, drop the bundled
+reporter into your project. One command:
+
+```bash
+cd /your/wdio-project
+qa-dashboard scaffold webdriverio
+```
+
+That writes `qa-dashboard-wdio-reporter.js` to the project root and
+prints the `wdio.conf.js` snippet you need:
+
+```js
+const QaDashboardReporter = require('./qa-dashboard-wdio-reporter');
+
+exports.config = {
+  reporters: [
+    'spec',
+    [QaDashboardReporter, { outputDir: 'captures' }],
+  ],
+  // ...
+};
+```
+
+Then your normal workflow:
+
+```bash
+npx wdio run wdio.conf.js
+qa-dashboard captures/run_*
+open captures/run_*/index.html
+```
+
+What you get automatically:
+
+- Per-test pass/fail/skip with durations
+- Suite hierarchy in test nodeids (`Suite > Sub-suite > test name`)
+- Auto-capture of `browser.takeScreenshot()` results
+- Auto-capture of `browser.saveScreenshot(path)` files
+- Failure error message + stack trace
+- Capability info (browser, platform, Appium device) attached as `device`
+- Multi-worker safe — workers converge on a single run directory via a
+  lockfile in `outputDir`
+
 ## Java / JavaScript integration via `qa-dashboard ingest` (JUnit XML)
 
 ```bash
