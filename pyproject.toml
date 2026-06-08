@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "qa-dashboard"
-version = "0.6.0"
-description = "Suite-level pytest HTML dashboard with mitmproxy capture, steps, screenshots, and multi-format export (PDF/CSV/JSON/XLSX/DOCX/ZIP)."
+version = "0.7.0"
+description = "Suite-level pytest HTML dashboard with unified network capture (mitmproxy / Playwright native / Selenium 4 BiDi / HAR ingest), steps, screenshots, and multi-format export (PDF/CSV/JSON/XLSX/DOCX/ZIP)."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -43,5 +43,6 @@ artifacts = [
     "src/qa_dashboard/report/templates/*",
     "src/qa_dashboard/integrations/playwright/*",
     "src/qa_dashboard/integrations/webdriverio/*",
+    "src/qa_dashboard/integrations/selenium/*",
 ]
 

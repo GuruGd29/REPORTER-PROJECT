@@ -269,6 +269,11 @@ class QaDashboardReporter {
       });
     }
 
+    // Pull flows from the qa-dashboard-network attachment (emitted by
+    // qa-dashboard-fixtures.js). Falls back to [] if the user hasn't
+    // opted in to the fixtures.
+    rec.flows = this._extractFlows(result.attachments || []);
+
     // Attach screenshots from result.attachments
     const failingStepId = (() => {
       for (const s of rec.steps) {
@@ -331,7 +336,7 @@ class QaDashboardReporter {
       parameters: rec.parameters,
       outcome: rec.outcome,
       steps: rec.steps.map(this._cleanStep),
-      flows: [],   // Playwright JS doesn't go through mitmproxy
+      flows: rec.flows || [],
       screenshots: rec.screenshots,
       console: rec.console,
       device: rec.device,
@@ -377,7 +382,7 @@ class QaDashboardReporter {
         python: null,
         platform: os.platform() + '-' + os.arch() + '-' + os.release(),
         mitmproxy: null,
-        qa_dashboard: 'playwright-reporter-0.5.0',
+        qa_dashboard: 'playwright-reporter-0.7.0',
         hostname: os.hostname(),
         user: os.userInfo().username,
         cwd: process.cwd(),
@@ -407,7 +412,7 @@ class QaDashboardReporter {
         started_at: t.started_at,
         duration_ms: t.duration_ms,
         step_count: t.steps.length,
-        flow_count: 0,
+        flow_count: (t.flows || []).length,
         screenshot_count: t.screenshots.length,
         tags: t.tags,
         error_summary: t.outcome ? t.outcome.traceback_summary : null,
@@ -436,6 +441,30 @@ class QaDashboardReporter {
       out[k] = step[k];
     }
     return out;
+  }
+
+  _extractFlows(attachments) {
+    for (const att of attachments) {
+      if (!att || att.name !== 'qa-dashboard-network') continue;
+      let raw;
+      try {
+        if (att.body) {
+          raw = Buffer.isBuffer(att.body) ? att.body.toString('utf-8') : String(att.body);
+        } else if (att.path && fs.existsSync(att.path)) {
+          raw = fs.readFileSync(att.path, 'utf-8');
+        } else {
+          continue;
+        }
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) continue;
+        // Re-number ids so they are contiguous per test (fixtures emit
+        // 0..N-1 already, but a later transform could break that).
+        return parsed.map((f, i) => Object.assign({}, f, { id: i }));
+      } catch (_) {
+        continue;
+      }
+    }
+    return [];
   }
 
   _inferLogLevel(line) {

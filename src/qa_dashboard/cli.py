@@ -23,37 +23,52 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _cmd_ingest(argv: list[str]) -> int:
-    from .ingest.junit_xml import ingest_junit_xml
-
     p = argparse.ArgumentParser(
         prog="qa-dashboard ingest",
         description=(
-            "Ingest test results from a non-pytest framework (JUnit XML). "
-            "Works with Maven Surefire / Failsafe, Gradle, TestNG, JUnit 5, "
-            "Jest junit reporter, Playwright JS junit reporter, etc."
+            "Ingest test results from a non-pytest framework. "
+            "Supports JUnit XML (Maven Surefire / Failsafe, Gradle, TestNG, "
+            "JUnit 5, Jest junit reporter, Playwright JS junit reporter) and "
+            "HAR 1.2 (browser DevTools, Playwright recordHar, BrowserMob, "
+            "mitmproxy hardump, k6, JMeter, Postman)."
         ),
     )
     p.add_argument("inputs", nargs="+", type=Path,
-                   help="JUnit XML files or directory(ies) containing them")
+                   help="Input files or directory(ies). Format is auto-detected "
+                        "from extension (.xml or .har) unless --format is given.")
     p.add_argument("-o", "--out", type=Path, default=Path("captures"),
                    help="Root directory for the generated run (default: captures)")
     p.add_argument("--screenshots-dir", type=Path, default=None,
-                   help="Directory of PNGs to attach by filename match")
-    p.add_argument("--format", choices=["junit-xml"], default="junit-xml",
-                   help="Input format (currently only junit-xml)")
+                   help="Directory of PNGs to attach by filename match "
+                        "(junit-xml format only)")
+    p.add_argument("--format", choices=["junit-xml", "har", "auto"], default="auto",
+                   help="Input format (default: auto-detect from extension)")
     p.add_argument("--repo", default=None, help="Repository label to record")
     p.add_argument("--no-report", action="store_true",
                    help="Skip HTML generation (only write JSON artifacts)")
     p.add_argument("--brand-color", default=None, help="HTML brand color")
     args = p.parse_args(argv)
 
+    fmt = args.format
+    if fmt == "auto":
+        fmt = _detect_ingest_format(args.inputs)
+
     try:
-        run_dir = ingest_junit_xml(
-            inputs=args.inputs,
-            out_root=args.out,
-            screenshots_dir=args.screenshots_dir,
-            repo_label=args.repo,
-        )
+        if fmt == "har":
+            from .ingest.har import ingest_har
+            run_dir = ingest_har(
+                inputs=args.inputs,
+                out_root=args.out,
+                repo_label=args.repo,
+            )
+        else:
+            from .ingest.junit_xml import ingest_junit_xml
+            run_dir = ingest_junit_xml(
+                inputs=args.inputs,
+                out_root=args.out,
+                screenshots_dir=args.screenshots_dir,
+                repo_label=args.repo,
+            )
     except FileNotFoundError as e:
         print(f"qa-dashboard: {e}", file=sys.stderr)
         return 2
@@ -62,6 +77,22 @@ def _cmd_ingest(argv: list[str]) -> int:
         out = generate_index_html(run_dir, brand_color=args.brand_color)
         print(f"Generated {out}")
     return 0
+
+
+def _detect_ingest_format(inputs: list[Path]) -> str:
+    """Pick junit-xml vs har by looking at file extensions in ``inputs``."""
+    suffixes: set[str] = set()
+    for inp in inputs:
+        inp = Path(inp)
+        if inp.is_dir():
+            for p in inp.rglob("*"):
+                if p.is_file():
+                    suffixes.add(p.suffix.lower())
+        else:
+            suffixes.add(inp.suffix.lower())
+    if ".har" in suffixes and ".xml" not in suffixes:
+        return "har"
+    return "junit-xml"
 
 
 def _cmd_scaffold(argv: list[str]) -> int:
@@ -85,25 +116,36 @@ def _cmd_scaffold(argv: list[str]) -> int:
         from .integrations import playwright as _pw_pkg
         pkg_dir = Path(_pw_pkg.__file__).parent
         src = pkg_dir / "qa-dashboard-reporter.js"
+        fixtures_src = pkg_dir / "qa-dashboard-fixtures.js"
         if not src.exists():
             print(f"qa-dashboard: bundled reporter not found at {src}",
                   file=sys.stderr)
             return 3
         dst = args.output or Path.cwd() / "qa-dashboard-reporter.js"
+        fixtures_dst = dst.parent / "qa-dashboard-fixtures.js"
         if dst.exists() and not args.force:
             print(f"qa-dashboard: {dst} already exists. Use --force to overwrite.",
+                  file=sys.stderr)
+            return 2
+        if fixtures_dst.exists() and not args.force:
+            print(f"qa-dashboard: {fixtures_dst} already exists. Use --force to overwrite.",
                   file=sys.stderr)
             return 2
         dst.parent.mkdir(parents=True, exist_ok=True)
         import shutil
         shutil.copyfile(src, dst)
         print(f"Wrote {dst}")
+        if fixtures_src.exists():
+            shutil.copyfile(fixtures_src, fixtures_dst)
+            print(f"Wrote {fixtures_dst}")
         print("\nAdd this to your playwright.config.ts (or .js):")
         print("  reporter: [")
         print("    ['list'],")
         print(f"    ['./{dst.name}', {{ outputDir: 'captures' }}],")
         print("  ],")
         print("  use: { screenshot: 'only-on-failure', trace: 'retain-on-failure' },")
+        print("\nFor native network capture, import test from the fixtures:")
+        print(f"  const {{ test, expect }} = require('./{fixtures_dst.name}');")
         print("\nThen:")
         print("  npx playwright test")
         print("  qa-dashboard captures/run_*")

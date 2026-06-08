@@ -478,7 +478,7 @@ class QaDashboardWdioReporter extends BaseReporter {
         python: null,
         platform: os.platform() + '-' + os.arch() + '-' + os.release(),
         mitmproxy: null,
-        qa_dashboard: 'webdriverio-reporter-0.6.0',
+        qa_dashboard: 'webdriverio-reporter-0.7.0',
         hostname: os.hostname(),
         user: os.userInfo().username,
         cwd: process.cwd(),

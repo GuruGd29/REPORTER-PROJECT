@@ -1,9 +1,17 @@
 # qa-dashboard
 
 A pip-installable pytest plugin that generates a suite-level HTML
-dashboard from a pytest run — including test results, network captures
-(via mitmproxy), screenshots, console logs, and multi-format export
+dashboard from a pytest run — including test results, network captures,
+screenshots, console logs, and multi-format export
 (PDF, CSV, JSON, XLSX, DOCX, ZIP).
+
+**Unified network capture (v0.7.0+).** One `flows[]` schema, four
+sources:
+- **mitmproxy** for pytest (Appium / native apps / anywhere)
+- **Native request/response listeners** for Playwright JS/TS
+- **Selenium 4 BiDi (CDP fallback)** for Python Selenium tests
+- **HAR ingest** for everything else (BrowserMob, k6, JMeter,
+  browser DevTools exports, Playwright `recordHar`)
 
 Also ingests **JUnit XML** output, so Java (Maven Surefire / TestNG /
 JUnit 5) and JavaScript (Jest / Playwright JS / Mocha) projects can
@@ -29,6 +37,19 @@ qa-dashboard ingest target/surefire-reports/ \
 open captures/run_*/index.html
 ```
 
+## Quickstart — HAR file (any source)
+
+```bash
+pip install qa-dashboard
+# Drop in a HAR exported from browser DevTools, Playwright recordHar,
+# BrowserMob, mitmproxy hardump, k6, JMeter, Postman, etc.
+qa-dashboard ingest path/to/trace.har
+open captures/run_*/index.html
+```
+
+Format auto-detects from `.har` / `.xml` extensions, or override with
+`--format har` / `--format junit-xml`.
+
 ## Pytest options
 
 | Option | Default | Effect |
@@ -44,7 +65,36 @@ open captures/run_*/index.html
 | `--qa-dashboard-screenshot-max-width` | (none) | Downscale screenshots (requires Pillow) |
 
 Environment variables shadow CLI options
-(`QA_DASHBOARD_DIR`, `QA_DASHBOARD_MITM_PORT`, ...).
+(`QA_DASHBOARD_DIR`, `QA_DASHBOARD_MITM_PORT`,
+`QA_DASHBOARD_MITM_SKIP`, `QA_DASHBOARD_HOST_FILTER`,
+`QA_DASHBOARD_SCREENSHOT_ON_FAIL`, `QA_DASHBOARD_NO_REPORT`,
+`QA_DASHBOARD_PRETTY`, `QA_DASHBOARD_SCREENSHOT_MAX_WIDTH`,
+`QA_DASHBOARD_BRAND_COLOR`).
+
+### Setting options once (no per-run flags)
+
+You don't need to pass these flags on every `pytest` command. Pick
+whichever fits your project:
+
+**1. `pyproject.toml` (recommended for pytest projects)**
+
+```toml
+[tool.pytest.ini_options]
+addopts = "--qa-dashboard-dir=captures --qa-dashboard-brand-color=#1d4ed8"
+```
+
+**2. `pytest.ini` / `setup.cfg`** — same idea, `addopts = ...` under
+`[pytest]` / `[tool:pytest]`.
+
+**3. Environment variables** — commit a `.env` or set them in CI:
+
+```bash
+export QA_DASHBOARD_DIR=captures
+export QA_DASHBOARD_SCREENSHOT_ON_FAIL=true
+export QA_DASHBOARD_BRAND_COLOR=#1d4ed8
+```
+
+Precedence: **CLI flag > environment variable > built-in default.**
 
 ## Using the `step` fixture (optional but recommended)
 
@@ -98,7 +148,60 @@ pip install qa-dashboard[docx]   # adds python-docx
 pip install qa-dashboard[all]    # everything (Pillow + openpyxl + python-docx)
 ```
 
-## Playwright TypeScript / JavaScript — native reporter (v0.5.0)
+## Network capture support matrix
+
+| Source | Mechanism | HTTPS / cert install? | Notes |
+|---|---|---|---|
+| pytest + Appium / native apps | mitmproxy auto-spawn | yes — manual | Default for pytest; works against any client that honours `HTTP(S)_PROXY` |
+| pytest + Selenium 4 (Chrome/Edge) | BiDi/CDP via `bidi_network_capture` | no | See [Selenium 4 BiDi capture](#selenium-4-bidi-network-capture-python) |
+| Playwright JS/TS | Native `context.on('request'/'response')` | no | Opt-in via `qa-dashboard-fixtures.js` |
+| WebdriverIO | (planned) — use HAR ingest in the meantime | — | |
+| Anything else | HAR ingest (`qa-dashboard ingest *.har`) | no | DevTools, BrowserMob, k6, JMeter, Postman, Playwright `recordHar` |
+
+## Selenium 4 BiDi network capture (Python)
+
+Use a Selenium 4 WebDriver in a pytest test, get full request/response
+data in the dashboard without setting up mitmproxy or installing a CA
+cert. Works automatically against Chromium-based drivers; Firefox
+support depends on your Selenium version's BiDi network module.
+
+```python
+# conftest.py
+import pytest
+from selenium import webdriver
+from qa_dashboard.integrations.selenium import bidi_network_capture
+
+@pytest.fixture
+def driver():
+    d = webdriver.Chrome()
+    with bidi_network_capture(d):
+        yield d
+    d.quit()
+```
+
+The context manager finds the active qa-dashboard run, subscribes to
+network events for the lifetime of the driver, and writes captured
+flows into the same `_flows/<test_id>.jsonl` layout the rest of the
+plugin uses.
+
+For browsers/drivers where automatic capture isn't available, push
+flows directly into the unified sink:
+
+```python
+from qa_dashboard.integrations.selenium import FlowSink
+
+sink = FlowSink()  # auto-discovers run dir + active test_id
+sink.record(
+    method="GET",
+    url="https://api.example.com/users",
+    status_code=200,
+    response_headers={"content-type": "application/json"},
+    response_body=b'{"ok": true}',
+    duration_ms=42,
+)
+```
+
+## Playwright TypeScript / JavaScript — native reporter (v0.7.0)
 
 For richer step-level data than JUnit XML can carry, drop the bundled
 Playwright reporter into your project. One command:
@@ -136,7 +239,7 @@ open captures/run_*/index.html
 
 What you get vs. the JUnit XML path:
 
-| Feature | `qa-dashboard ingest` (JUnit) | Native reporter (v0.5.0) |
+| Feature | `qa-dashboard ingest` (JUnit) | Native reporter (v0.7.0) |
 |---|---|---|
 | Test results, durations, errors | ✅ | ✅ |
 | Auto-screenshot on failure | ✅ (with `--screenshots-dir`) | ✅ (from Playwright attachments) |
@@ -145,6 +248,28 @@ What you get vs. the JUnit XML path:
 | Console logs with timestamps + levels | ⚠️ heuristic | ✅ from `stdout`/`stderr` |
 | Per-step screenshot grouping | ❌ | ✅ |
 | Nested step support | ❌ | ✅ |
+| **Network capture (request + response bodies)** | ❌ | ✅ via opt-in fixtures (below) |
+
+### Native network capture (opt-in)
+
+`qa-dashboard scaffold playwright` now drops two files into your
+project: `qa-dashboard-reporter.js` (the reporter) and
+`qa-dashboard-fixtures.js` (an extended `test` fixture that subscribes
+to BrowserContext request/response events).
+
+Switch your test imports to pick up automatic capture:
+
+```ts
+// Before:
+// import { test, expect } from '@playwright/test';
+// After:
+const { test, expect } = require('./qa-dashboard-fixtures');
+```
+
+That's it — every test now records its full network trace into the
+unified `flows[]` schema and you'll see a populated **Network** tab
+in the dashboard. Bodies are capped at 100 KB (configurable via
+`test.use({ qaDashboard: { maxBodyBytes: 524288 } })`).
 
 Tests using Playwright's native step syntax produce full breakdowns:
 
@@ -168,7 +293,7 @@ test('login flow', async ({ page }) => {
 timings, nested actions as sub-steps, and any screenshots attached to
 the step where they were taken.
 
-## WebdriverIO — native reporter (v0.6.0)
+## WebdriverIO — native reporter (v0.7.0)
 
 For WDIO + Mocha / Jasmine / Cucumber projects, drop the bundled
 reporter into your project. One command:
