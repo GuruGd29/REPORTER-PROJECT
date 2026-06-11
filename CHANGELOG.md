@@ -8,6 +8,30 @@ the stability commitments described in **Stability policy** at the bottom.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-06-12
+
+### Added
+- **Pytester-based integration tests** for `pytest_plugin.py` — 35 new
+  tests covering the full run lifecycle (pass/fail/skip/error/xfail/
+  parametrize), step fixture, `qa_dashboard_test` fixture, and all CLI
+  options. `pytest_plugin.py` coverage went from 18 % → 64 %.
+- **Unit tests for all previously uncovered supporting modules** — 63
+  new tests covering `_manifest.ManifestWriter`, `_log_capture.JsonlLogHandler`,
+  `_auto_screenshot.auto_screenshot_for`, `fixtures.StepTracker`,
+  `bundle.builder.build_test_record`, and `capture.step_channel.StepChannel`.
+  Total test count: 219 (up from 121). Overall coverage: 65 % (up from 51 %).
+- `tests/conftest.py` enabling the `pytester` fixture for the test suite.
+
+### Changed
+- Coverage gate raised from 55 % → 65 % to match the new baseline.
+- mypy gate expanded from 5 files → 13 files. Added:
+  `_auto_screenshot`, `_log_capture`, `_manifest`, `_paths`, `publish`,
+  `bundle/builder`, `capture/step_channel`, `report/generator`.
+- Added `boto3` and `botocore` to mypy `ignore_missing_imports` so the
+  publish module type-checks cleanly when boto3 is not installed.
+- Fixed PIL `Image.LANCZOS` → `Image.Resampling.LANCZOS` (Pillow 10+)
+  in `fixtures._maybe_downscale`.
+
 ## [0.9.0] - 2026-06-12
 
 ### Added

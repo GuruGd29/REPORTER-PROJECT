@@ -57,7 +57,7 @@ jobs:
       - name: Install package + test deps
         run: pip install -e ".[dev,all,mitm]"
       - name: Run tests with coverage
-        run: pytest --cov=qa_dashboard --cov-report=term-missing --cov-fail-under=55 --qa-dashboard-mitm-skip
+        run: pytest --cov=qa_dashboard --cov-report=term-missing --cov-fail-under=65 --qa-dashboard-mitm-skip
       - name: Upload coverage artifact
         if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
         uses: actions/upload-artifact@v4

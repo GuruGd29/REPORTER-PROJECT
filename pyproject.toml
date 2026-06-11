@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "qa-dashboard"
-version = "0.9.0"
+version = "0.10.0"
 description = "Production-grade pytest HTML dashboard with unified network capture (mitmproxy / Playwright native / Selenium 4 BiDi / HAR ingest), header/body redaction, doctor health checks, multi-format export, and Allure-style static publishing to S3/GitHub Pages."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -117,13 +117,12 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["B011"]            # assert False is fine in tests
+"tests/*" = ["B011", "RUF012"]  # assert False fine; test helper classes use mutable class attrs
 
 [tool.mypy]
-# Gate enforced on the v0.8.0 public API surface. Existing modules
-# (pytest_plugin, mitm_addon, junit_xml, har) have pre-existing
-# annotation gaps and are tracked as follow-up; tightening them is
-# scheduled for v0.9.
+# Modules under strict mypy gate. Extended in v0.10 to cover all typed
+# public modules; pytest_plugin, mitm_addon, fixtures (PIL stubs), har,
+# and junit_xml have pre-existing gaps tracked for v0.11.
 python_version = "3.10"
 strict_optional = true
 warn_redundant_casts = true
@@ -133,13 +132,21 @@ no_implicit_optional = true
 check_untyped_defs = true
 files = [
     "src/qa_dashboard/__init__.py",
+    "src/qa_dashboard/_auto_screenshot.py",
+    "src/qa_dashboard/_log_capture.py",
+    "src/qa_dashboard/_manifest.py",
+    "src/qa_dashboard/_paths.py",
     "src/qa_dashboard/_redact.py",
-    "src/qa_dashboard/doctor.py",
+    "src/qa_dashboard/bundle/builder.py",
     "src/qa_dashboard/bundle/schemas.py",
+    "src/qa_dashboard/capture/step_channel.py",
+    "src/qa_dashboard/doctor.py",
     "src/qa_dashboard/integrations/selenium/__init__.py",
+    "src/qa_dashboard/publish.py",
+    "src/qa_dashboard/report/generator.py",
 ]
 
 [[tool.mypy.overrides]]
-module = ["mitmproxy.*", "openpyxl.*", "docx.*", "PIL.*"]
+module = ["mitmproxy.*", "openpyxl.*", "docx.*", "PIL.*", "boto3", "botocore.*"]
 ignore_missing_imports = true
 
