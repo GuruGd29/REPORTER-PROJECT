@@ -7,30 +7,28 @@ TestRecord JSON for every test plus a final ``manifest.json``.
 HTML generation is performed at ``pytest_sessionfinish`` via
 ``qa_dashboard.report.generator.generate_index_html`` if available.
 """
+
 from __future__ import annotations
 
 import logging
 import os
 import sys
 import time
-import traceback
 from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from . import __version__
 from ._auto_screenshot import auto_screenshot_for
 from ._log_capture import JsonlLogHandler
 from ._manifest import ManifestWriter
-from ._paths import iso_from_epoch, make_run_dir, make_test_id, now_iso
+from ._paths import make_run_dir, make_test_id, now_iso
 from .bundle.builder import build_test_record
-from .bundle.schemas import BundleValidationError, validate_manifest, validate_test_record
+from .bundle.schemas import BundleValidationError, validate_test_record
 from .capture.mitm_manager import MitmManager
 from .capture.step_channel import StepChannel
 from .fixtures import StepTracker
-
 
 _state_key = pytest.StashKey()
 log = logging.getLogger("qa_dashboard")
@@ -40,48 +38,75 @@ log = logging.getLogger("qa_dashboard")
 # CLI options
 # ---------------------------------------------------------------------------
 
+
 def pytest_addoption(parser: pytest.Parser) -> None:
     group = parser.getgroup("qa-dashboard", "qa-dashboard reporting")
     group.addoption(
-        "--qa-dashboard-dir", default=None,
+        "--qa-dashboard-dir",
+        default=None,
         help="Where to write run directories (default: captures)",
     )
     group.addoption(
-        "--qa-dashboard-mitm-port", type=int, default=None,
+        "--qa-dashboard-mitm-port",
+        type=int,
+        default=None,
         help="Port for mitmdump (default: 8080)",
     )
     group.addoption(
-        "--qa-dashboard-mitm-skip", action="store_true", default=False,
+        "--qa-dashboard-mitm-skip",
+        action="store_true",
+        default=False,
         help="Run without mitmproxy (network tab empty)",
     )
     group.addoption(
-        "--qa-dashboard-host-filter", default=None,
+        "--qa-dashboard-host-filter",
+        default=None,
         help="Only capture flows whose host matches this substring",
     )
     group.addoption(
-        "--qa-dashboard-screenshot-on-fail", default=None,
+        "--qa-dashboard-screenshot-on-fail",
+        default=None,
         help="If true and the step fixture's screenshot_callback is set, "
-             "auto-capture a screenshot at failure",
+        "auto-capture a screenshot at failure",
     )
     group.addoption(
-        "--qa-dashboard-no-report", action="store_true", default=False,
+        "--qa-dashboard-no-report",
+        action="store_true",
+        default=False,
         help="Skip HTML generation (JSON artifacts only)",
     )
     group.addoption(
-        "--qa-dashboard-pretty", default=None,
+        "--qa-dashboard-pretty",
+        default=None,
         help="Pretty-print JSON output (default: true)",
     )
     group.addoption(
-        "--qa-dashboard-disable", action="store_true", default=False,
+        "--qa-dashboard-disable",
+        action="store_true",
+        default=False,
         help="Disable the plugin entirely (useful for nested pytest runs)",
     )
     group.addoption(
-        "--qa-dashboard-screenshot-max-width", type=int, default=None,
+        "--qa-dashboard-screenshot-max-width",
+        type=int,
+        default=None,
         help="Downscale screenshots wider than this (requires Pillow)",
     )
     group.addoption(
-        "--qa-dashboard-brand-color", default=None,
+        "--qa-dashboard-brand-color",
+        default=None,
         help="Brand accent color for the HTML report (e.g. #1d4ed8)",
+    )
+    group.addoption(
+        "--qa-dashboard-redact",
+        default=None,
+        help=(
+            "Comma-separated extra header/body-key patterns to redact "
+            "in captured flows (case-insensitive substring match). "
+            "Defaults: authorization, cookie, set-cookie, x-api-key, "
+            "x-auth-token, proxy-authorization. Pass '-' to keep "
+            "defaults only; pass an empty string to disable defaults."
+        ),
     )
 
 
@@ -102,11 +127,22 @@ def _bool(s: Any, default: bool) -> bool:
 # Plugin state
 # ---------------------------------------------------------------------------
 
+
 class _PerTestState:
-    __slots__ = ("test_id", "seq", "started_at", "started_perf",
-                 "tracker", "log_handler", "outcome",
-                 "device", "app", "tags", "duration_ms",
-                 "auto_screenshot")
+    __slots__ = (
+        "app",
+        "auto_screenshot",
+        "device",
+        "duration_ms",
+        "log_handler",
+        "outcome",
+        "seq",
+        "started_at",
+        "started_perf",
+        "tags",
+        "test_id",
+        "tracker",
+    )
 
     def __init__(self, test_id: str, seq: int, started_at: str) -> None:
         self.test_id = test_id
@@ -130,13 +166,11 @@ class PluginState:
 
         # Resolve options (CLI > env > ini-style defaults)
         self.dir = Path(
-            config.getoption("--qa-dashboard-dir")
-            or _env_or("QA_DASHBOARD_DIR", "captures")
+            config.getoption("--qa-dashboard-dir") or _env_or("QA_DASHBOARD_DIR", "captures")
         ).resolve()
         port_opt = config.getoption("--qa-dashboard-mitm-port")
         self.mitm_port = int(
-            port_opt if port_opt is not None
-            else _env_or("QA_DASHBOARD_MITM_PORT", 8080)
+            port_opt if port_opt is not None else _env_or("QA_DASHBOARD_MITM_PORT", 8080)
         )
         self.mitm_skip = bool(
             config.getoption("--qa-dashboard-mitm-skip")
@@ -157,8 +191,7 @@ class PluginState:
             or _bool(os.environ.get("QA_DASHBOARD_NO_REPORT"), False)
         )
         self.pretty = _bool(
-            config.getoption("--qa-dashboard-pretty")
-            or _env_or("QA_DASHBOARD_PRETTY", "true"),
+            config.getoption("--qa-dashboard-pretty") or _env_or("QA_DASHBOARD_PRETTY", "true"),
             True,
         )
         self.screenshot_max_width = (
@@ -166,10 +199,15 @@ class PluginState:
             or int(_env_or("QA_DASHBOARD_SCREENSHOT_MAX_WIDTH", 0) or 0)
             or None
         )
-        self.brand_color = (
-            config.getoption("--qa-dashboard-brand-color")
-            or _env_or("QA_DASHBOARD_BRAND_COLOR", None)
+        self.brand_color = config.getoption("--qa-dashboard-brand-color") or _env_or(
+            "QA_DASHBOARD_BRAND_COLOR", None
         )
+        # Redaction: CLI > env var (consumed by the mitm subprocess via
+        # the existing QA_DASHBOARD_REDACT env path, set below before
+        # spawning).
+        cli_redact = config.getoption("--qa-dashboard-redact")
+        if cli_redact is not None:
+            os.environ["QA_DASHBOARD_REDACT"] = cli_redact
 
         self.run_id: str = ""
         self.run_dir: Path | None = None
@@ -200,6 +238,7 @@ class PluginState:
 # ---------------------------------------------------------------------------
 # Session hooks
 # ---------------------------------------------------------------------------
+
 
 def pytest_configure(config: pytest.Config) -> None:
     if getattr(config, "workerinput", None):
@@ -245,12 +284,14 @@ def pytest_sessionstart(session: pytest.Session) -> None:
             )
             state.screenshot_max_width = None
 
-    config_snap = OrderedDict([
-        ("mitm_port", state.mitm_port),
-        ("host_filter", state.host_filter),
-        ("screenshot_on_fail", state.screenshot_on_fail),
-        ("command_line", " ".join(sys.argv)),
-    ])
+    config_snap = OrderedDict(
+        [
+            ("mitm_port", state.mitm_port),
+            ("host_filter", state.host_filter),
+            ("screenshot_on_fail", state.screenshot_on_fail),
+            ("command_line", " ".join(sys.argv)),
+        ]
+    )
     state.manifest = ManifestWriter(run_dir, run_id, config_snap, pretty=state.pretty)
     state.manifest.flush()
 
@@ -277,13 +318,15 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     if state.mitm is not None:
         try:
             state.mitm.stop()
-        except Exception:
-            pass
+        except OSError as e:
+            log.warning("qa-dashboard: mitm stop failed: %s", e)
     if state.channel is not None:
         try:
             state.channel.clear()
-        except Exception:
-            pass
+        except OSError as e:
+            log.warning("qa-dashboard: step channel cleanup failed: %s", e)
+    # Surface any mitm addon errors written by the subprocess.
+    _surface_mitm_addon_errors(state.run_dir)
     if state.manifest is not None:
         try:
             state.manifest.finalize()
@@ -313,8 +356,7 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
                 )
         else:
             print(
-                f"\nqa-dashboard: artifacts in {state.run_dir} "
-                f"(HTML generator not available)",
+                f"\nqa-dashboard: artifacts in {state.run_dir} (HTML generator not available)",
                 file=sys.stderr,
             )
 
@@ -322,6 +364,7 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
 # ---------------------------------------------------------------------------
 # Per-test hooks
 # ---------------------------------------------------------------------------
+
 
 def pytest_runtest_setup(item: pytest.Item) -> None:
     config = item.config
@@ -336,8 +379,8 @@ def pytest_runtest_setup(item: pytest.Item) -> None:
     # Side-channel: test active, no step
     try:
         state.channel.set(st.test_id, 0)
-    except Exception:
-        pass
+    except OSError as e:
+        log.debug("qa-dashboard: could not write step channel: %s", e)
     # Attach the log handler
     try:
         log_path = state.run_dir / "_logs" / f"{st.test_id}.jsonl"
@@ -363,11 +406,16 @@ def pytest_runtest_makereport(item: pytest.Item, call):
         return
 
     # On failure, grab an auto-screenshot (best-effort, never raises)
-    if (rep.when in ("setup", "call") and not rep.passed and not rep.skipped
-            and st.auto_screenshot is None):
+    if (
+        rep.when in ("setup", "call")
+        and not rep.passed
+        and not rep.skipped
+        and st.auto_screenshot is None
+    ):
         try:
             png = auto_screenshot_for(item)
         except Exception:
+            log.debug("auto-screenshot capture failed for %s", item.nodeid, exc_info=True)
             png = None
         if png:
             st.auto_screenshot = png
@@ -382,25 +430,29 @@ def pytest_runtest_makereport(item: pytest.Item, call):
             phase_status = "fail"
         long = str(rep.longrepr) if rep.longrepr else None
         first_line = long.splitlines()[0] if long else None
-        st.outcome = OrderedDict([
-            ("phase", "call"),
-            ("longrepr", long),
-            ("traceback_summary", first_line),
-            ("stdout_tail", getattr(rep, "capstdout", "") or ""),
-            ("stderr_tail", getattr(rep, "capstderr", "") or ""),
-            ("_status", phase_status),
-        ])
+        st.outcome = OrderedDict(
+            [
+                ("phase", "call"),
+                ("longrepr", long),
+                ("traceback_summary", first_line),
+                ("stdout_tail", getattr(rep, "capstdout", "") or ""),
+                ("stderr_tail", getattr(rep, "capstderr", "") or ""),
+                ("_status", phase_status),
+            ]
+        )
     elif rep.when in ("setup", "teardown") and not rep.passed and st.outcome is None:
         long = str(rep.longrepr) if rep.longrepr else None
         first_line = long.splitlines()[0] if long else None
-        st.outcome = OrderedDict([
-            ("phase", rep.when),
-            ("longrepr", long),
-            ("traceback_summary", first_line),
-            ("stdout_tail", getattr(rep, "capstdout", "") or ""),
-            ("stderr_tail", getattr(rep, "capstderr", "") or ""),
-            ("_status", "skip" if rep.skipped else "error"),
-        ])
+        st.outcome = OrderedDict(
+            [
+                ("phase", rep.when),
+                ("longrepr", long),
+                ("traceback_summary", first_line),
+                ("stdout_tail", getattr(rep, "capstdout", "") or ""),
+                ("stderr_tail", getattr(rep, "capstderr", "") or ""),
+                ("_status", "skip" if rep.skipped else "error"),
+            ]
+        )
 
 
 def pytest_runtest_teardown(item: pytest.Item, nextitem) -> None:
@@ -427,14 +479,14 @@ def pytest_runtest_teardown(item: pytest.Item, nextitem) -> None:
             try:
                 logging.getLogger().removeHandler(st.log_handler)
                 st.log_handler.close()
-            except Exception:
-                pass
+            except (OSError, ValueError) as e:
+                log.debug("qa-dashboard: log handler cleanup failed: %s", e)
         # Clear the side channel
         if state.channel is not None:
             try:
                 state.channel.clear()
-            except Exception:
-                pass
+            except OSError as e:
+                log.debug("qa-dashboard: step channel cleanup failed: %s", e)
 
 
 def _finalize_test(state: PluginState, item: pytest.Item, st: _PerTestState) -> None:
@@ -453,23 +505,27 @@ def _finalize_test(state: PluginState, item: pytest.Item, st: _PerTestState) -> 
             reason = skip_marker.kwargs.get("reason") or (
                 skip_marker.args[0] if skip_marker.args else "skipped"
             )
-            outcome = OrderedDict([
-                ("phase", "setup"),
-                ("longrepr", f"Skipped: {reason}"),
-                ("traceback_summary", f"Skipped: {reason}"),
-                ("stdout_tail", ""),
-                ("stderr_tail", ""),
-                ("_status", "skip"),
-            ])
+            outcome = OrderedDict(
+                [
+                    ("phase", "setup"),
+                    ("longrepr", f"Skipped: {reason}"),
+                    ("traceback_summary", f"Skipped: {reason}"),
+                    ("stdout_tail", ""),
+                    ("stderr_tail", ""),
+                    ("_status", "skip"),
+                ]
+            )
         else:
-            outcome = OrderedDict([
-                ("phase", "setup"),
-                ("longrepr", None),
-                ("traceback_summary", None),
-                ("stdout_tail", ""),
-                ("stderr_tail", ""),
-                ("_status", "error"),
-            ])
+            outcome = OrderedDict(
+                [
+                    ("phase", "setup"),
+                    ("longrepr", None),
+                    ("traceback_summary", None),
+                    ("stdout_tail", ""),
+                    ("stderr_tail", ""),
+                    ("_status", "error"),
+                ]
+            )
     test_status = outcome.pop("_status")
 
     # xfailed / xpassed via wasxfail attribute on the report
@@ -483,11 +539,16 @@ def _finalize_test(state: PluginState, item: pytest.Item, st: _PerTestState) -> 
                 if isinstance(png, (bytes, bytearray)):
                     st.tracker.screenshot(bytes(png), label="failure")
             except Exception:
-                pass
+                log.debug("screenshot-on-fail callback raised for %s", item.nodeid, exc_info=True)
 
-    step_data = st.tracker.finalize() if st.tracker is not None else {
-        "steps": [], "screenshots": [],
-    }
+    step_data = (
+        st.tracker.finalize()
+        if st.tracker is not None
+        else {
+            "steps": [],
+            "screenshots": [],
+        }
+    )
 
     # Auto-screenshot on failure (best-effort). If the user used the
     # ``step`` fixture, attach to the last failing step (or the last
@@ -505,6 +566,7 @@ def _finalize_test(state: PluginState, item: pytest.Item, st: _PerTestState) -> 
         if cs is not None:
             parameters = {k: _safe_repr(v) for k, v in cs.params.items()}
     except Exception:
+        log.debug("parameter extraction failed for %s", item.nodeid, exc_info=True)
         parameters = None
 
     # File and line
@@ -512,15 +574,17 @@ def _finalize_test(state: PluginState, item: pytest.Item, st: _PerTestState) -> 
     line_no: int | None = None
     try:
         if isinstance(item, pytest.Function):
-            file_path = str(Path(item.path).relative_to(Path.cwd())) if hasattr(item, "path") else ""
+            file_path = (
+                str(Path(item.path).relative_to(Path.cwd())) if hasattr(item, "path") else ""
+            )
             try:
                 line_no = item.function.__code__.co_firstlineno
-            except Exception:
+            except AttributeError:
                 line_no = None
         else:
             file_path = str(getattr(item, "fspath", "") or "")
-    except Exception:
-        pass
+    except (ValueError, AttributeError) as e:
+        log.debug("file/line extraction failed for %s: %s", item.nodeid, e)
 
     record = build_test_record(
         test_id=st.test_id,
@@ -548,9 +612,9 @@ def _finalize_test(state: PluginState, item: pytest.Item, st: _PerTestState) -> 
 
     out_path = state.run_dir / "tests" / f"{st.test_id}.json"
     import json
+
     out_path.write_text(
-        json.dumps(record, ensure_ascii=False,
-                   indent=2 if state.pretty else None),
+        json.dumps(record, ensure_ascii=False, indent=2 if state.pretty else None),
         encoding="utf-8",
     )
 
@@ -560,20 +624,22 @@ def _finalize_test(state: PluginState, item: pytest.Item, st: _PerTestState) -> 
         first = long.splitlines()[0] if long else ""
         error_summary = first or None
 
-    summary = OrderedDict([
-        ("test_id", st.test_id),
-        ("nodeid", item.nodeid),
-        ("name", item.name),
-        ("file", file_path),
-        ("status", test_status),
-        ("started_at", st.started_at),
-        ("duration_ms", duration_ms),
-        ("step_count", len(record["steps"])),
-        ("flow_count", len(record["flows"])),
-        ("screenshot_count", len(record["screenshots"])),
-        ("tags", list(st.tags)),
-        ("error_summary", error_summary),
-    ])
+    summary = OrderedDict(
+        [
+            ("test_id", st.test_id),
+            ("nodeid", item.nodeid),
+            ("name", item.name),
+            ("file", file_path),
+            ("status", test_status),
+            ("started_at", st.started_at),
+            ("duration_ms", duration_ms),
+            ("step_count", len(record["steps"])),
+            ("flow_count", len(record["flows"])),
+            ("screenshot_count", len(record["screenshots"])),
+            ("tags", list(st.tags)),
+            ("error_summary", error_summary),
+        ]
+    )
     if state.manifest is not None:
         state.manifest.add_test_summary(summary)
 
@@ -585,19 +651,21 @@ def _attach_auto_screenshot(state, st, step_data, test_status):
         return
     # If user didn't use the step fixture, create a synthetic step
     if not step_data["steps"]:
-        synthetic_step = OrderedDict([
-            ("id", 1),
-            ("name", "Test execution"),
-            ("status", test_status if test_status in ("pass", "fail", "skip") else "fail"),
-            ("started_at", st.started_at),
-            ("ended_at", now_iso()),
-            ("duration_ms", st.duration_ms),
-            ("substeps", []),
-            ("screenshot_ids", []),
-            ("flow_ids", []),
-            ("error", None),
-            ("skip_reason", None),
-        ])
+        synthetic_step = OrderedDict(
+            [
+                ("id", 1),
+                ("name", "Test execution"),
+                ("status", test_status if test_status in ("pass", "fail", "skip") else "fail"),
+                ("started_at", st.started_at),
+                ("ended_at", now_iso()),
+                ("duration_ms", st.duration_ms),
+                ("substeps", []),
+                ("screenshot_ids", []),
+                ("flow_ids", []),
+                ("error", None),
+                ("skip_reason", None),
+            ]
+        )
         step_data["steps"].append(synthetic_step)
 
     # Find the right step to attach to: last failing step, else last step
@@ -622,21 +690,25 @@ def _attach_auto_screenshot(state, st, step_data, test_status):
     # Try to extract PNG width/height
     try:
         from .fixtures import _png_dimensions
+
         width, height = _png_dimensions(png)
-    except Exception:
+    except (ImportError, ValueError, OSError) as e:
+        log.debug("PNG dimension extraction failed: %s", e)
         width = height = None
 
-    record = OrderedDict([
-        ("id", shot_id),
-        ("step_id", step_id),
-        ("captured_at", now_iso()),
-        ("filename", filename),
-        ("asset_path", f"assets/screenshots/{filename}"),
-        ("width", width),
-        ("height", height),
-        ("size_bytes", len(png)),
-        ("label", "auto-captured on failure" if test_status == "fail" else "auto-captured"),
-    ])
+    record = OrderedDict(
+        [
+            ("id", shot_id),
+            ("step_id", step_id),
+            ("captured_at", now_iso()),
+            ("filename", filename),
+            ("asset_path", f"assets/screenshots/{filename}"),
+            ("width", width),
+            ("height", height),
+            ("size_bytes", len(png)),
+            ("label", "auto-captured on failure" if test_status == "fail" else "auto-captured"),
+        ]
+    )
     target["screenshot_ids"].append(shot_id)
     step_data["screenshots"].append(record)
 
@@ -644,15 +716,43 @@ def _attach_auto_screenshot(state, st, step_data, test_status):
 def _safe_repr(v: Any) -> Any:
     try:
         import json
+
         json.dumps(v)
         return v
-    except Exception:
+    except (TypeError, ValueError):
         return repr(v)
+
+
+def _surface_mitm_addon_errors(run_dir: Path | None) -> None:
+    """If the mitm addon subprocess logged errors, surface them on stderr."""
+    if run_dir is None:
+        return
+    err_log = run_dir / "_flows" / "_addon_errors.log"
+    try:
+        if not err_log.exists():
+            return
+        text = err_log.read_text(encoding="utf-8", errors="replace").strip()
+    except OSError as e:
+        log.debug("could not read mitm addon error log: %s", e)
+        return
+    if not text:
+        return
+    # Best-effort: show the tail so we don't spam huge stack traces, but
+    # always point users at the file so they can dig deeper.
+    lines = text.splitlines()
+    tail = "\n".join(lines[-40:])
+    log.warning(
+        "qa-dashboard: mitm addon reported %d error line(s). Last entries:\n%s\nFull log: %s",
+        len(lines),
+        tail,
+        err_log,
+    )
 
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def step(request: pytest.FixtureRequest) -> StepTracker:
@@ -672,6 +772,7 @@ def step(request: pytest.FixtureRequest) -> StepTracker:
         # using a temp dir so screenshot() doesn't crash. The records
         # simply won't be picked up.
         import tempfile
+
         tmp = Path(tempfile.mkdtemp(prefix="qa-dashboard-nooptracker-"))
         (tmp / "assets" / "screenshots").mkdir(parents=True)
         channel = StepChannel(tmp)
@@ -683,7 +784,9 @@ def step(request: pytest.FixtureRequest) -> StepTracker:
         # setup hook didn't run? Create lazily.
         st = state.create_state(request.node)
     tracker = StepTracker(
-        st.test_id, state.run_dir, state.channel,
+        st.test_id,
+        state.run_dir,
+        state.channel,
         max_width=state.screenshot_max_width,
     )
     st.tracker = tracker

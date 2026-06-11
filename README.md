@@ -1,5 +1,10 @@
 # qa-dashboard
 
+[![PyPI](https://img.shields.io/pypi/v/qa-dashboard.svg)](https://pypi.org/project/qa-dashboard/)
+[![Python](https://img.shields.io/pypi/pyversions/qa-dashboard.svg)](https://pypi.org/project/qa-dashboard/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![CI](https://img.shields.io/github/actions/workflow/status/your-org/qa-dashboard/ci.yml?branch=main&label=CI)](https://github.com/your-org/qa-dashboard/actions/workflows/ci.yml)
+
 A pip-installable pytest plugin that generates a suite-level HTML
 dashboard from a pytest run — including test results, network captures,
 screenshots, console logs, and multi-format export
@@ -374,4 +379,58 @@ filename contains the test method or class name, it's auto-attached.
 - Custom screenshot labels (`step.screenshot(png, label="…")`)
 - Device/app metadata (`qa_dashboard_test.set_device(…)`)
 
-See `qa-dashboard-spec/` for the full specification.
+## Security & redaction
+
+qa-dashboard captures HTTP traffic and writes it to disk. The
+following headers are redacted to `***` by default before being
+persisted:
+
+`authorization`, `cookie`, `set-cookie`, `x-api-key`, `x-auth-token`,
+`proxy-authorization`
+
+Extend or replace the list:
+
+```bash
+pytest --qa-dashboard-redact "authorization,x-internal-token,password"
+# or
+export QA_DASHBOARD_REDACT="authorization,x-internal-token,password"
+```
+
+Matches are case-insensitive substrings against header names **and**
+top-level JSON body keys. See [SECURITY.md](SECURITY.md) for the full
+threat model and how to report vulnerabilities.
+
+## Diagnose a run
+
+```bash
+qa-dashboard doctor captures/run_*
+```
+
+Validates the manifest and per-test JSON records, cross-references
+flows/screenshots/steps, and exits non-zero on any structural issue.
+Useful in CI right after a test run, before publishing the report.
+
+## Stability policy
+
+qa-dashboard follows SemVer. Within `0.x`:
+
+- **The on-disk data contract (`schema_version: 1`)** is stable. We
+  will not break `manifest.json` / `tests/*.json` consumers within a
+  major schema version.
+- **CLI flags and pytest options** are stable across minor releases on
+  a best-effort basis. Renames get one minor of deprecation warning.
+- **The Python public API** is the names listed in each module's
+  `__all__`. Private names start with `_`.
+- **JS reporter options** are stable across minor releases.
+
+See [CHANGELOG.md](CHANGELOG.md) for the full release history.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). TL;DR: `pip install -e
+".[dev,all,mitm]"`, then `ruff check .`, `mypy src/qa_dashboard`,
+`pytest --cov=qa_dashboard --cov-fail-under=80`.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

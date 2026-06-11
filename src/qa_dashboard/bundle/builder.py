@@ -6,6 +6,8 @@ from pathlib import Path
 
 from .. import SCHEMA_VERSION
 
+__all__ = ["build_test_record"]
+
 
 def _read_flows(path: Path) -> list[dict]:
     if not path.exists():
@@ -76,25 +78,27 @@ def build_test_record(
     for step in steps:
         step["flow_ids"] = list(flow_ids_by_step.get(step["id"], []))
 
-    record = OrderedDict([
-        ("schema_version", SCHEMA_VERSION),
-        ("test_id", test_id),
-        ("nodeid", nodeid),
-        ("name", name),
-        ("file", file),
-        ("line", line),
-        ("status", status),
-        ("started_at", started_at),
-        ("ended_at", ended_at),
-        ("duration_ms", duration_ms),
-        ("tags", list(tags or [])),
-        ("parameters", parameters),
-        ("outcome", outcome),
-        ("steps", steps),
-        ("flows", flows),
-        ("screenshots", step_data.get("screenshots", [])),
-        ("console", console),
-        ("device", device),
-        ("app", app),
-    ])
+    record = OrderedDict(
+        [
+            ("schema_version", SCHEMA_VERSION),
+            ("test_id", test_id),
+            ("nodeid", nodeid),
+            ("name", name),
+            ("file", file),
+            ("line", line),
+            ("status", status),
+            ("started_at", started_at),
+            ("ended_at", ended_at),
+            ("duration_ms", duration_ms),
+            ("tags", list(tags or [])),
+            ("parameters", parameters),
+            ("outcome", outcome),
+            ("steps", steps),
+            ("flows", flows),
+            ("screenshots", step_data.get("screenshots", [])),
+            ("console", console),
+            ("device", device),
+            ("app", app),
+        ]
+    )
     return record

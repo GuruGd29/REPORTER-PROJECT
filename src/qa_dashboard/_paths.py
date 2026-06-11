@@ -38,7 +38,10 @@ def make_test_id(seq: int, nodeid: str) -> str:
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.") + f"{datetime.now(timezone.utc).microsecond // 1000:03d}Z"
+    return (
+        datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.")
+        + f"{datetime.now(timezone.utc).microsecond // 1000:03d}Z"
+    )
 
 
 def iso_from_epoch(epoch: float) -> str:
@@ -50,5 +53,6 @@ def ms_between_iso(start: str, end: str) -> int:
     def parse(s: str) -> datetime:
         s = s.replace("Z", "+00:00")
         return datetime.fromisoformat(s)
+
     delta = parse(end) - parse(start)
     return int(delta.total_seconds() * 1000)

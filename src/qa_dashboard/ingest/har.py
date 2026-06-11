@@ -17,6 +17,7 @@ Two entry points:
 
 This module has zero non-stdlib imports.
 """
+
 from __future__ import annotations
 
 import base64
@@ -31,6 +32,9 @@ from urllib.parse import urlsplit
 from .. import SCHEMA_VERSION
 from .._manifest import collect_environment, collect_source
 from .._paths import make_run_dir, sanitize_nodeid
+from .._redact import Redactor, load_default_redactor
+
+__all__ = ["har_entries_to_flows", "ingest_har"]
 
 
 _MAX_BODY_BYTES = 100 * 1024  # mirror mitm_addon.MAX_BODY_BYTES
@@ -99,8 +103,12 @@ def _decode_har_content(
             except (UnicodeDecodeError, json.JSONDecodeError):
                 pass
         text_like = (
-            "text" in ct or "xml" in ct or "html" in ct or "javascript" in ct
-            or "form-urlencoded" in ct or ct == ""
+            "text" in ct
+            or "xml" in ct
+            or "html" in ct
+            or "javascript" in ct
+            or "form-urlencoded" in ct
+            or ct == ""
         )
         if text_like:
             try:
@@ -121,7 +129,12 @@ def _decode_har_content(
     return "text", text, len(body_bytes)
 
 
-def _entry_to_flow(entry: dict, flow_id: int, step_id: int | None) -> dict | None:
+def _entry_to_flow(
+    entry: dict,
+    flow_id: int,
+    step_id: int | None,
+    redactor: Redactor | None = None,
+) -> dict | None:
     request = entry.get("request") or {}
     response = entry.get("response") or {}
     url = request.get("url") or ""
@@ -139,8 +152,8 @@ def _entry_to_flow(entry: dict, flow_id: int, step_id: int | None) -> dict | Non
     if not duration_ms:
         t = entry.get("timings") or {}
         duration_ms = sum(
-            int(t.get(k) or 0) for k in
-            ("blocked", "dns", "connect", "send", "wait", "receive", "ssl")
+            int(t.get(k) or 0)
+            for k in ("blocked", "dns", "connect", "send", "wait", "receive", "ssl")
             if (t.get(k) or 0) >= 0
         )
 
@@ -153,43 +166,67 @@ def _entry_to_flow(entry: dict, flow_id: int, step_id: int | None) -> dict | Non
     post = request.get("postData") or {}
     req_text = post.get("text")
     req_content = (
-        {"text": req_text,
-         "size": len(req_text.encode("utf-8")) if req_text else 0,
-         "mimeType": post.get("mimeType") or req_ct,
-         "encoding": ""}
-        if req_text is not None else None
+        {
+            "text": req_text,
+            "size": len(req_text.encode("utf-8")) if req_text else 0,
+            "mimeType": post.get("mimeType") or req_ct,
+            "encoding": "",
+        }
+        if req_text is not None
+        else None
     )
     req_enc, req_body, req_size = _decode_har_content(req_content, req_ct)
 
     resp_enc, resp_body, resp_size = _decode_har_content(
-        response.get("content"), resp_ct,
+        response.get("content"),
+        resp_ct,
     )
 
-    return OrderedDict([
-        ("id", flow_id),
-        ("timestamp", started),
-        ("method", method),
-        ("url", url),
-        ("host", host),
-        ("path", path),
-        ("status_code", int(response.get("status") or 0)),
-        ("duration_ms", max(duration_ms, 0)),
-        ("step_id", step_id),
-        ("request", OrderedDict([
-            ("headers", req_headers),
-            ("content_type", req_ct),
-            ("body_encoding", req_enc),
-            ("body_size_bytes", req_size),
-            ("body", req_body),
-        ])),
-        ("response", OrderedDict([
-            ("headers", resp_headers),
-            ("content_type", resp_ct),
-            ("body_encoding", resp_enc),
-            ("body_size_bytes", resp_size),
-            ("body", resp_body),
-        ])),
-    ])
+    if redactor is not None:
+        req_headers = redactor.redact_headers(req_headers)
+        resp_headers = redactor.redact_headers(resp_headers)
+        if req_enc == "json":
+            req_body = redactor.redact_body(req_body)
+        if resp_enc == "json":
+            resp_body = redactor.redact_body(resp_body)
+
+    return OrderedDict(
+        [
+            ("id", flow_id),
+            ("timestamp", started),
+            ("method", method),
+            ("url", url),
+            ("host", host),
+            ("path", path),
+            ("status_code", int(response.get("status") or 0)),
+            ("duration_ms", max(duration_ms, 0)),
+            ("step_id", step_id),
+            (
+                "request",
+                OrderedDict(
+                    [
+                        ("headers", req_headers),
+                        ("content_type", req_ct),
+                        ("body_encoding", req_enc),
+                        ("body_size_bytes", req_size),
+                        ("body", req_body),
+                    ]
+                ),
+            ),
+            (
+                "response",
+                OrderedDict(
+                    [
+                        ("headers", resp_headers),
+                        ("content_type", resp_ct),
+                        ("body_encoding", resp_enc),
+                        ("body_size_bytes", resp_size),
+                        ("body", resp_body),
+                    ]
+                ),
+            ),
+        ]
+    )
 
 
 def har_entries_to_flows(
@@ -197,13 +234,15 @@ def har_entries_to_flows(
     *,
     step_id: int | None = None,
     start_id: int = 0,
+    redactor: Redactor | None = None,
 ) -> list[dict]:
     """Convert a parsed HAR (or a path to one) into qa-dashboard flows.
 
     ``step_id`` is stamped on every flow so consumers can attach the
     captured network to a particular pseudo-step in the test record.
     ``start_id`` lets callers append to an existing flow list without
-    colliding on the per-test ``id`` counter.
+    colliding on the per-test ``id`` counter. ``redactor`` defaults to
+    :func:`qa_dashboard._redact.load_default_redactor`.
     """
     if isinstance(har, (str, Path)):
         har_data = json.loads(Path(har).read_text(encoding="utf-8"))
@@ -213,8 +252,9 @@ def har_entries_to_flows(
     entries = log.get("entries") or []
     out: list[dict] = []
     next_id = start_id
+    active_redactor = redactor if redactor is not None else load_default_redactor()
     for entry in entries:
-        flow = _entry_to_flow(entry, next_id, step_id)
+        flow = _entry_to_flow(entry, next_id, step_id, redactor=active_redactor)
         if flow is None:
             continue
         out.append(flow)
@@ -280,63 +320,75 @@ def ingest_har(
             ended_at = started_at
         duration_ms = sum(f["duration_ms"] for f in flows)
 
-        outcome = OrderedDict([
-            ("phase", "call"),
-            ("longrepr", None),
-            ("traceback_summary", None),
-            ("stdout_tail", ""),
-            ("stderr_tail", ""),
-        ])
-        steps = [OrderedDict([
-            ("id", 1),
-            ("name", "HAR replay"),
-            ("status", "pass"),
-            ("started_at", started_at),
-            ("ended_at", ended_at),
-            ("duration_ms", duration_ms),
-            ("substeps", []),
-            ("screenshot_ids", []),
-            ("flow_ids", [f["id"] for f in flows]),
-            ("error", None),
-            ("skip_reason", None),
-        ])]
+        outcome = OrderedDict(
+            [
+                ("phase", "call"),
+                ("longrepr", None),
+                ("traceback_summary", None),
+                ("stdout_tail", ""),
+                ("stderr_tail", ""),
+            ]
+        )
+        steps = [
+            OrderedDict(
+                [
+                    ("id", 1),
+                    ("name", "HAR replay"),
+                    ("status", "pass"),
+                    ("started_at", started_at),
+                    ("ended_at", ended_at),
+                    ("duration_ms", duration_ms),
+                    ("substeps", []),
+                    ("screenshot_ids", []),
+                    ("flow_ids", [f["id"] for f in flows]),
+                    ("error", None),
+                    ("skip_reason", None),
+                ]
+            )
+        ]
 
-        record = OrderedDict([
-            ("schema_version", SCHEMA_VERSION),
-            ("test_id", test_id),
-            ("nodeid", nodeid),
-            ("name", har_path.stem),
-            ("file", str(har_path)),
-            ("line", None),
-            ("status", "pass"),
-            ("started_at", started_at),
-            ("ended_at", ended_at),
-            ("duration_ms", duration_ms),
-            ("tags", ["har"]),
-            ("parameters", None),
-            ("outcome", outcome),
-            ("steps", steps),
-            ("flows", flows),
-            ("screenshots", []),
-            ("console", []),
-            ("device", None),
-            ("app", None),
-        ])
+        record = OrderedDict(
+            [
+                ("schema_version", SCHEMA_VERSION),
+                ("test_id", test_id),
+                ("nodeid", nodeid),
+                ("name", har_path.stem),
+                ("file", str(har_path)),
+                ("line", None),
+                ("status", "pass"),
+                ("started_at", started_at),
+                ("ended_at", ended_at),
+                ("duration_ms", duration_ms),
+                ("tags", ["har"]),
+                ("parameters", None),
+                ("outcome", outcome),
+                ("steps", steps),
+                ("flows", flows),
+                ("screenshots", []),
+                ("console", []),
+                ("device", None),
+                ("app", None),
+            ]
+        )
         test_records.append(record)
-        test_summaries.append(OrderedDict([
-            ("test_id", test_id),
-            ("nodeid", nodeid),
-            ("name", har_path.stem),
-            ("file", str(har_path)),
-            ("status", "pass"),
-            ("started_at", started_at),
-            ("duration_ms", duration_ms),
-            ("step_count", 1),
-            ("flow_count", len(flows)),
-            ("screenshot_count", 0),
-            ("tags", ["har"]),
-            ("error_summary", None),
-        ]))
+        test_summaries.append(
+            OrderedDict(
+                [
+                    ("test_id", test_id),
+                    ("nodeid", nodeid),
+                    ("name", har_path.stem),
+                    ("file", str(har_path)),
+                    ("status", "pass"),
+                    ("started_at", started_at),
+                    ("duration_ms", duration_ms),
+                    ("step_count", 1),
+                    ("flow_count", len(flows)),
+                    ("screenshot_count", 0),
+                    ("tags", ["har"]),
+                    ("error_summary", None),
+                ]
+            )
+        )
 
         if earliest_ts is None or started_at < earliest_ts:
             earliest_ts = started_at
@@ -346,7 +398,8 @@ def ingest_har(
 
     for record in test_records:
         (run_dir / "tests" / f"{record['test_id']}.json").write_text(
-            json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+            json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
 
     summary = {
         "total": len(test_summaries),
@@ -365,21 +418,25 @@ def ingest_har(
     if repo_label:
         src["repo"] = repo_label
 
-    manifest = OrderedDict([
-        ("schema_version", SCHEMA_VERSION),
-        ("run_id", run_id),
-        ("started_at", earliest_ts or _now_iso()),
-        ("ended_at", latest_ts or _now_iso()),
-        ("duration_ms", total_ms),
-        ("status", "pass"),
-        ("summary", summary),
-        ("environment", env),
-        ("source", src),
-        ("config", {"ingestor": "har",
-                    "inputs": [str(p) for p in har_files],
-                    "command_line": ""}),
-        ("tests", test_summaries),
-    ])
+    manifest = OrderedDict(
+        [
+            ("schema_version", SCHEMA_VERSION),
+            ("run_id", run_id),
+            ("started_at", earliest_ts or _now_iso()),
+            ("ended_at", latest_ts or _now_iso()),
+            ("duration_ms", total_ms),
+            ("status", "pass"),
+            ("summary", summary),
+            ("environment", env),
+            ("source", src),
+            (
+                "config",
+                {"ingestor": "har", "inputs": [str(p) for p in har_files], "command_line": ""},
+            ),
+            ("tests", test_summaries),
+        ]
+    )
     (run_dir / "manifest.json").write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     return run_dir

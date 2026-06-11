@@ -1,3 +1,5 @@
-__version__ = "0.7.0"
+__version__ = "0.8.0"
 
 SCHEMA_VERSION = 1
+
+__all__ = ["SCHEMA_VERSION", "__version__"]

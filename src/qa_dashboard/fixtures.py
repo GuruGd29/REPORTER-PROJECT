@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from ._paths import iso_from_epoch, ms_between_iso, now_iso
+from ._paths import ms_between_iso, now_iso
 from .capture.step_channel import StepChannel
 
 
@@ -72,16 +72,12 @@ class StepTracker:
             record["error"] = {
                 "type": type(exc).__name__,
                 "message": str(exc),
-                "traceback": "".join(
-                    traceback.format_exception(type(exc), exc, exc.__traceback__)
-                ),
+                "traceback": "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
             }
             raise
         finally:
             record["ended_at"] = now_iso()
-            record["duration_ms"] = ms_between_iso(
-                record["started_at"], record["ended_at"]
-            )
+            record["duration_ms"] = ms_between_iso(record["started_at"], record["ended_at"])
             self._current = prev
             # Back to test-active-no-step
             self._channel.set(self._test_id, 0)
@@ -137,11 +133,13 @@ class StepTracker:
             raise
         finally:
             duration_ms = int((time.perf_counter() - started) * 1000)
-            self._current["substeps"].append({
-                "name": str(name),
-                "status": status,
-                "duration_ms": duration_ms,
-            })
+            self._current["substeps"].append(
+                {
+                    "name": str(name),
+                    "status": status,
+                    "duration_ms": duration_ms,
+                }
+            )
         return result
 
     def skip(self, name: str, reason: str) -> None:
@@ -197,8 +195,9 @@ def _maybe_downscale(png_bytes: bytes, max_width: int) -> bytes:
     if w is None or w <= max_width:
         return png_bytes
     try:
-        from PIL import Image  # type: ignore
         import io
+
+        from PIL import Image  # type: ignore
     except ImportError as e:  # pragma: no cover
         raise ImportError(
             "Pillow is required for --qa-dashboard-screenshot-max-width. "

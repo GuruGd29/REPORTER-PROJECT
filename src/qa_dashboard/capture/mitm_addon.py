@@ -5,22 +5,35 @@ active ``(test_id, step_id)``. Writes one JSON object per line to
 ``_flows/<test_id>.jsonl``. The parent pytest process reads these
 files at teardown time.
 
-This module must use only stdlib + mitmproxy. Do not import from
+This module must use only stdlib + mitmproxy + the dependency-free
+``qa_dashboard._redact`` module. Do not import anything heavier from
 ``qa_dashboard.*`` here — the addon runs in a separate Python process.
 """
+
 from __future__ import annotations
 
 import base64
 import json
 import os
-import time
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from mitmproxy import http
+# Make the redaction helper importable when the addon is loaded by
+# mitmdump from an installed wheel OR from a source checkout.
+try:
+    from qa_dashboard._redact import load_default_redactor
+except ImportError:
+    # Fallback: addon lives at src/qa_dashboard/capture/mitm_addon.py;
+    # the package root is two levels up.
+    _pkg_root = str(Path(__file__).resolve().parents[2])
+    if _pkg_root not in sys.path:
+        sys.path.insert(0, _pkg_root)
+    from qa_dashboard._redact import load_default_redactor
 
+from mitmproxy import http
 
 MAX_BODY_BYTES = 100 * 1024  # 100 KB before being marked "omitted"
 
@@ -51,8 +64,12 @@ def _decode_body(content: bytes | None, content_type: str | None) -> tuple[str, 
             pass
     # Try text
     text_like = (
-        "text" in ct or "xml" in ct or "html" in ct or "javascript" in ct
-        or "form-urlencoded" in ct or ct == ""
+        "text" in ct
+        or "xml" in ct
+        or "html" in ct
+        or "javascript" in ct
+        or "form-urlencoded" in ct
+        or ct == ""
     )
     if text_like:
         try:
@@ -68,7 +85,8 @@ def _headers_dict(headers) -> dict[str, str]:
     try:
         for k, v in headers.items():
             out[str(k).lower()] = str(v)
-    except Exception:
+    except (AttributeError, TypeError):
+        # mitmproxy headers should always iterate; nothing to do but skip.
         pass
     return out
 
@@ -88,6 +106,9 @@ class QaDashboardAddon:
         self._handles: dict[str, Any] = {}
         # Sequential id per test_id, reset when test changes
         self._counters: dict[str, int] = {}
+        # Redaction rules — env-var driven so the parent process can
+        # pass through `QA_DASHBOARD_REDACT` without a custom protocol.
+        self._redactor = load_default_redactor()
 
     # -- helpers -----------------------------------------------------
 
@@ -136,9 +157,7 @@ class QaDashboardAddon:
             resp = flow.response
             # Duration: prefer mitmproxy timestamps if available
             try:
-                duration_ms = int(
-                    (resp.timestamp_end - req.timestamp_start) * 1000
-                )
+                duration_ms = int((resp.timestamp_end - req.timestamp_start) * 1000)
             except Exception:
                 duration_ms = 0
             req_enc, req_body, req_size = _decode_body(
@@ -149,6 +168,10 @@ class QaDashboardAddon:
                 resp.raw_content or b"",
                 resp.headers.get("content-type"),
             )
+            if req_enc == "json":
+                req_body = self._redactor.redact_body(req_body)
+            if resp_enc == "json":
+                resp_body = self._redactor.redact_body(resp_body)
             record = {
                 "id": self._next_id(test_id),
                 "timestamp": _iso(req.timestamp_start),
@@ -160,14 +183,14 @@ class QaDashboardAddon:
                 "duration_ms": duration_ms,
                 "step_id": step_id,
                 "request": {
-                    "headers": _headers_dict(req.headers),
+                    "headers": self._redactor.redact_headers(_headers_dict(req.headers)),
                     "content_type": req.headers.get("content-type", ""),
                     "body_encoding": req_enc,
                     "body_size_bytes": req_size,
                     "body": req_body,
                 },
                 "response": {
-                    "headers": _headers_dict(resp.headers),
+                    "headers": self._redactor.redact_headers(_headers_dict(resp.headers)),
                     "content_type": resp.headers.get("content-type", ""),
                     "body_encoding": resp_enc,
                     "body_size_bytes": resp_size,
@@ -183,6 +206,7 @@ class QaDashboardAddon:
                 err = self._run_dir / "_flows" / "_addon_errors.log"
                 with err.open("a", encoding="utf-8") as f:
                     import traceback as _tb
+
                     f.write(_tb.format_exc() + "\n")
             except Exception:
                 pass

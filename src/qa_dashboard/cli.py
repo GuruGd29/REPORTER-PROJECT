@@ -19,7 +19,30 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_ingest(argv[1:])
     if argv and argv[0] == "scaffold":
         return _cmd_scaffold(argv[1:])
+    if argv and argv[0] == "doctor":
+        return _cmd_doctor(argv[1:])
     return _cmd_default(argv)
+
+
+def _cmd_doctor(argv: list[str]) -> int:
+    from .doctor import diagnose, format_report
+
+    p = argparse.ArgumentParser(
+        prog="qa-dashboard doctor",
+        description=(
+            "Validate one or more qa-dashboard run directories. "
+            "Returns non-zero on any structural error."
+        ),
+    )
+    p.add_argument("run_dirs", nargs="+", type=Path, help="Run directory or directories to inspect")
+    args = p.parse_args(argv)
+    failed = False
+    for run in args.run_dirs:
+        d = diagnose(run)
+        print(format_report(d))
+        if not d.ok:
+            failed = True
+    return 1 if failed else 0
 
 
 def _cmd_ingest(argv: list[str]) -> int:
@@ -33,19 +56,36 @@ def _cmd_ingest(argv: list[str]) -> int:
             "mitmproxy hardump, k6, JMeter, Postman)."
         ),
     )
-    p.add_argument("inputs", nargs="+", type=Path,
-                   help="Input files or directory(ies). Format is auto-detected "
-                        "from extension (.xml or .har) unless --format is given.")
-    p.add_argument("-o", "--out", type=Path, default=Path("captures"),
-                   help="Root directory for the generated run (default: captures)")
-    p.add_argument("--screenshots-dir", type=Path, default=None,
-                   help="Directory of PNGs to attach by filename match "
-                        "(junit-xml format only)")
-    p.add_argument("--format", choices=["junit-xml", "har", "auto"], default="auto",
-                   help="Input format (default: auto-detect from extension)")
+    p.add_argument(
+        "inputs",
+        nargs="+",
+        type=Path,
+        help="Input files or directory(ies). Format is auto-detected "
+        "from extension (.xml or .har) unless --format is given.",
+    )
+    p.add_argument(
+        "-o",
+        "--out",
+        type=Path,
+        default=Path("captures"),
+        help="Root directory for the generated run (default: captures)",
+    )
+    p.add_argument(
+        "--screenshots-dir",
+        type=Path,
+        default=None,
+        help="Directory of PNGs to attach by filename match (junit-xml format only)",
+    )
+    p.add_argument(
+        "--format",
+        choices=["junit-xml", "har", "auto"],
+        default="auto",
+        help="Input format (default: auto-detect from extension)",
+    )
     p.add_argument("--repo", default=None, help="Repository label to record")
-    p.add_argument("--no-report", action="store_true",
-                   help="Skip HTML generation (only write JSON artifacts)")
+    p.add_argument(
+        "--no-report", action="store_true", help="Skip HTML generation (only write JSON artifacts)"
+    )
     p.add_argument("--brand-color", default=None, help="HTML brand color")
     args = p.parse_args(argv)
 
@@ -56,6 +96,7 @@ def _cmd_ingest(argv: list[str]) -> int:
     try:
         if fmt == "har":
             from .ingest.har import ingest_har
+
             run_dir = ingest_har(
                 inputs=args.inputs,
                 out_root=args.out,
@@ -63,6 +104,7 @@ def _cmd_ingest(argv: list[str]) -> int:
             )
         else:
             from .ingest.junit_xml import ingest_junit_xml
+
             run_dir = ingest_junit_xml(
                 inputs=args.inputs,
                 out_root=args.out,
@@ -104,35 +146,42 @@ def _cmd_scaffold(argv: list[str]) -> int:
             "the current project so it can be referenced from a config file."
         ),
     )
-    p.add_argument("target", choices=["playwright", "webdriverio"],
-                   help="Which integration to scaffold")
-    p.add_argument("-o", "--output", type=Path, default=None,
-                   help="Destination filename (default: project root)")
-    p.add_argument("--force", action="store_true",
-                   help="Overwrite existing file")
+    p.add_argument(
+        "target", choices=["playwright", "webdriverio"], help="Which integration to scaffold"
+    )
+    p.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        default=None,
+        help="Destination filename (default: project root)",
+    )
+    p.add_argument("--force", action="store_true", help="Overwrite existing file")
     args = p.parse_args(argv)
 
     if args.target == "playwright":
         from .integrations import playwright as _pw_pkg
+
         pkg_dir = Path(_pw_pkg.__file__).parent
         src = pkg_dir / "qa-dashboard-reporter.js"
         fixtures_src = pkg_dir / "qa-dashboard-fixtures.js"
         if not src.exists():
-            print(f"qa-dashboard: bundled reporter not found at {src}",
-                  file=sys.stderr)
+            print(f"qa-dashboard: bundled reporter not found at {src}", file=sys.stderr)
             return 3
         dst = args.output or Path.cwd() / "qa-dashboard-reporter.js"
         fixtures_dst = dst.parent / "qa-dashboard-fixtures.js"
         if dst.exists() and not args.force:
-            print(f"qa-dashboard: {dst} already exists. Use --force to overwrite.",
-                  file=sys.stderr)
+            print(f"qa-dashboard: {dst} already exists. Use --force to overwrite.", file=sys.stderr)
             return 2
         if fixtures_dst.exists() and not args.force:
-            print(f"qa-dashboard: {fixtures_dst} already exists. Use --force to overwrite.",
-                  file=sys.stderr)
+            print(
+                f"qa-dashboard: {fixtures_dst} already exists. Use --force to overwrite.",
+                file=sys.stderr,
+            )
             return 2
         dst.parent.mkdir(parents=True, exist_ok=True)
         import shutil
+
         shutil.copyfile(src, dst)
         print(f"Wrote {dst}")
         if fixtures_src.exists():
@@ -154,19 +203,19 @@ def _cmd_scaffold(argv: list[str]) -> int:
 
     if args.target == "webdriverio":
         from .integrations import webdriverio as _wdio_pkg
+
         pkg_dir = Path(_wdio_pkg.__file__).parent
         src = pkg_dir / "qa-dashboard-wdio-reporter.js"
         if not src.exists():
-            print(f"qa-dashboard: bundled reporter not found at {src}",
-                  file=sys.stderr)
+            print(f"qa-dashboard: bundled reporter not found at {src}", file=sys.stderr)
             return 3
         dst = args.output or Path.cwd() / "qa-dashboard-wdio-reporter.js"
         if dst.exists() and not args.force:
-            print(f"qa-dashboard: {dst} already exists. Use --force to overwrite.",
-                  file=sys.stderr)
+            print(f"qa-dashboard: {dst} already exists. Use --force to overwrite.", file=sys.stderr)
             return 2
         dst.parent.mkdir(parents=True, exist_ok=True)
         import shutil
+
         shutil.copyfile(src, dst)
         print(f"Wrote {dst}")
         print("\nAdd this to your wdio.conf.(c)js:")
@@ -195,18 +244,19 @@ def _cmd_default(argv: list[str]) -> int:
         ),
     )
     p.add_argument("--version", action="version", version=f"qa-dashboard {__version__}")
-    p.add_argument("run_dir", type=Path,
-                   help="Path to a qa-dashboard run directory")
-    p.add_argument("--test", default=None,
-                   help="Render a standalone HTML for a single test_id")
-    p.add_argument("--brand-color", default=None,
-                   help="Override the brand accent color (e.g. #1d4ed8)")
-    p.add_argument("--export", choices=sorted(EXPORTERS.keys()), default=None,
-                   help="Export the run to another format")
-    p.add_argument("-o", "--output", type=Path, default=None,
-                   help="Output file for --export")
-    p.add_argument("--force", action="store_true",
-                   help="Regenerate even if index.html exists")
+    p.add_argument("run_dir", type=Path, help="Path to a qa-dashboard run directory")
+    p.add_argument("--test", default=None, help="Render a standalone HTML for a single test_id")
+    p.add_argument(
+        "--brand-color", default=None, help="Override the brand accent color (e.g. #1d4ed8)"
+    )
+    p.add_argument(
+        "--export",
+        choices=sorted(EXPORTERS.keys()),
+        default=None,
+        help="Export the run to another format",
+    )
+    p.add_argument("-o", "--output", type=Path, default=None, help="Output file for --export")
+    p.add_argument("--force", action="store_true", help="Regenerate even if index.html exists")
     args = p.parse_args(argv)
 
     run_dir = args.run_dir
@@ -221,6 +271,7 @@ def _cmd_default(argv: list[str]) -> int:
         out = args.output
         if out is None:
             import json as _json
+
             mid = _json.loads((run_dir / "manifest.json").read_text())["run_id"]
             out = run_dir / "exports" / f"{mid}.{args.export}"
         try:
