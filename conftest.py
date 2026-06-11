@@ -4,6 +4,7 @@ Disable the plugin in *this* repo's own self-tests so test runs don't
 pollute the workspace with capture directories. Downstream projects
 that install the package don't see this file.
 """
+
 import sys
 
 
