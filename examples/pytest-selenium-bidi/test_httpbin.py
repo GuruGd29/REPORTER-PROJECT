@@ -1,4 +1,5 @@
 """Selenium 4 + BiDi network capture — golden-path example."""
+
 from __future__ import annotations
 
 

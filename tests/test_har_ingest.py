@@ -165,10 +165,10 @@ def test_ingest_har_creates_valid_run_dir(tmp_path: Path):
     records = list((run_dir / "tests").glob("*.json"))
     assert len(records) == 1
 
-    manifest = json.loads((run_dir / "manifest.json").read_text())
+    manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
     validate_manifest(manifest)
 
-    record = json.loads(records[0].read_text())
+    record = json.loads(records[0].read_text(encoding="utf-8"))
     validate_test_record(record)
     assert len(record["flows"]) == 2
     assert record["status"] == "pass"

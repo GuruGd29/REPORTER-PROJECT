@@ -1,4 +1,5 @@
 """Shared Selenium driver fixture with BiDi/CDP network capture."""
+
 from __future__ import annotations
 
 import pytest

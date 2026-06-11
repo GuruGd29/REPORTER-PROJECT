@@ -272,7 +272,7 @@ def _cmd_default(argv: list[str]) -> int:
         if out is None:
             import json as _json
 
-            mid = _json.loads((run_dir / "manifest.json").read_text())["run_id"]
+            mid = _json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))["run_id"]
             out = run_dir / "exports" / f"{mid}.{args.export}"
         try:
             written = export(run_dir, args.export, out)

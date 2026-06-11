@@ -120,16 +120,16 @@ def test_rejects_invalid_brand_color(sample_run):
 
 
 def test_manifest_validates(sample_run):
-    validate_manifest(json.loads((sample_run / "manifest.json").read_text()))
+    validate_manifest(json.loads((sample_run / "manifest.json").read_text(encoding="utf-8")))
 
 
 def test_all_test_records_validate(sample_run):
     for p in (sample_run / "tests").glob("*.json"):
-        validate_test_record(json.loads(p.read_text()))
+        validate_test_record(json.loads(p.read_text(encoding="utf-8")))
 
 
 def test_standalone_html(sample_run):
-    manifest = json.loads((sample_run / "manifest.json").read_text())
+    manifest = json.loads((sample_run / "manifest.json").read_text(encoding="utf-8"))
     test_id = manifest["tests"][0]["test_id"]
     out = generate_standalone_test_html(sample_run, test_id)
     html = out.read_text(encoding="utf-8")
@@ -137,7 +137,7 @@ def test_standalone_html(sample_run):
     # Screenshots should be inlined as data URIs
     if "data:image/png;base64," not in html:
         # only inlined if the test had screenshots
-        rec = json.loads((sample_run / "tests" / f"{test_id}.json").read_text())
+        rec = json.loads((sample_run / "tests" / f"{test_id}.json").read_text(encoding="utf-8"))
         assert not rec["screenshots"], "should have inlined screenshots"
 
 
@@ -196,7 +196,7 @@ def test_handles_empty_run(tmp_path):
     }
     (run / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     out = generate_index_html(run)
-    html = out.read_text()
+    html = out.read_text(encoding="utf-8")
     assert "<!DOCTYPE html>" in html
 
 
@@ -217,7 +217,7 @@ def test_plugin_runs_with_no_tests(tmp_path):
     # Pytest exits 5 when no tests collected. That's not an error for us.
     runs = list((p / "captures").glob("run_*"))
     assert len(runs) == 1
-    m = json.loads((runs[0] / "manifest.json").read_text())
+    m = json.loads((runs[0] / "manifest.json").read_text(encoding="utf-8"))
     assert m["summary"]["total"] == 0
 
 
@@ -243,7 +243,7 @@ def test_step_fixture_records_steps(tmp_path):
     assert len(runs) == 1
     tests = list((runs[0] / "tests").glob("*.json"))
     assert len(tests) == 1
-    rec = json.loads(tests[0].read_text())
+    rec = json.loads(tests[0].read_text(encoding="utf-8"))
     assert rec["status"] == "pass"
     assert len(rec["steps"]) == 2
     assert rec["steps"][0]["name"] == "one"
@@ -272,7 +272,7 @@ def test_skipped_test_appears_in_manifest(tmp_path):
     )
     runs = list((p / "captures").glob("run_*"))
     assert len(runs) == 1
-    m = json.loads((runs[0] / "manifest.json").read_text())
+    m = json.loads((runs[0] / "manifest.json").read_text(encoding="utf-8"))
     statuses = [t["status"] for t in m["tests"]]
     assert "skip" in statuses
     assert "pass" in statuses
@@ -293,7 +293,7 @@ def test_export_csv(sample_run, tmp_path):
 def test_export_json(sample_run, tmp_path):
     out = export_mod.export_json(sample_run, tmp_path / "out.json")
     assert out.exists()
-    bundle = json.loads(out.read_text())
+    bundle = json.loads(out.read_text(encoding="utf-8"))
     assert "manifest" in bundle and "tests" in bundle
     assert len(bundle["tests"]) == bundle["manifest"]["summary"]["total"]
 
@@ -364,7 +364,7 @@ def test_auto_screenshot_on_failure_without_step_fixture(tmp_path):
     )
     runs = list((p / "captures").glob("run_*"))
     assert len(runs) == 1
-    rec = json.loads(list((runs[0] / "tests").glob("*.json"))[0].read_text())
+    rec = json.loads(list((runs[0] / "tests").glob("*.json"))[0].read_text(encoding="utf-8"))
     assert rec["status"] == "fail"
     assert len(rec["screenshots"]) == 1, "auto-screenshot should have been captured"
     assert "auto" in rec["screenshots"][0]["id"]
@@ -396,7 +396,7 @@ def test_auto_screenshot_via_playwright_page_api(tmp_path):
         cwd=str(p),
     )
     runs = list((p / "captures").glob("run_*"))
-    rec = json.loads(list((runs[0] / "tests").glob("*.json"))[0].read_text())
+    rec = json.loads(list((runs[0] / "tests").glob("*.json"))[0].read_text(encoding="utf-8"))
     assert len(rec["screenshots"]) == 1
 
 
@@ -414,7 +414,7 @@ def test_no_auto_screenshot_when_no_driver(tmp_path):
         cwd=str(p),
     )
     runs = list((p / "captures").glob("run_*"))
-    rec = json.loads(list((runs[0] / "tests").glob("*.json"))[0].read_text())
+    rec = json.loads(list((runs[0] / "tests").glob("*.json"))[0].read_text(encoding="utf-8"))
     assert rec["status"] == "fail"
     assert len(rec["screenshots"]) == 0
 
@@ -455,7 +455,7 @@ def test_ingest_junit_xml_basic(tmp_path):
     xml = tmp_path / "TEST-LoginTest.xml"
     xml.write_text(JUNIT_SUREFIRE_XML, encoding="utf-8")
     run = ingest_junit_xml([xml], out_root=tmp_path / "captures")
-    manifest = json.loads((run / "manifest.json").read_text())
+    manifest = json.loads((run / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["summary"]["total"] == 4
     assert manifest["summary"]["passed"] == 1
     assert manifest["summary"]["failed"] == 1
@@ -463,7 +463,7 @@ def test_ingest_junit_xml_basic(tmp_path):
     assert manifest["summary"]["skipped"] == 1
     validate_manifest(manifest)
     for p in (run / "tests").glob("*.json"):
-        validate_test_record(json.loads(p.read_text()))
+        validate_test_record(json.loads(p.read_text(encoding="utf-8")))
 
 
 def test_ingest_junit_xml_directory(tmp_path):
@@ -477,7 +477,7 @@ def test_ingest_junit_xml_directory(tmp_path):
         encoding="utf-8",
     )
     run = ingest_junit_xml([xml_dir], out_root=tmp_path / "captures")
-    m = json.loads((run / "manifest.json").read_text())
+    m = json.loads((run / "manifest.json").read_text(encoding="utf-8"))
     assert m["summary"]["total"] == 8
 
 
@@ -493,7 +493,7 @@ def test_ingest_with_screenshots(tmp_path):
     (shots / "testInvalidPassword_assert.png").write_bytes(png)
     run = ingest_junit_xml([xml], out_root=tmp_path / "captures", screenshots_dir=shots)
     valid = next(p for p in (run / "tests").glob("*testValidLogin*"))
-    rec = json.loads(valid.read_text())
+    rec = json.loads(valid.read_text(encoding="utf-8"))
     assert len(rec["screenshots"]) == 1
 
 
@@ -525,7 +525,7 @@ def test_ingest_recursive_screenshot_match(tmp_path):
     (shots / "tests-testInvalidPassword-chromium" / "test-failed-1.png").write_bytes(png)
     run = ingest_junit_xml([xml], out_root=tmp_path / "captures", screenshots_dir=shots)
     valid = next(p for p in (run / "tests").glob("*testValidLogin*"))
-    rec = json.loads(valid.read_text())
+    rec = json.loads(valid.read_text(encoding="utf-8"))
     assert len(rec["screenshots"]) == 1, "should pick up nested PNG by parent dir name"
 
 
@@ -552,11 +552,11 @@ def test_scaffold_playwright_refuses_overwrite(tmp_path):
     out.write_text("// pre-existing\n", encoding="utf-8")
     rc = main(["scaffold", "playwright", "-o", str(out)])
     assert rc == 2  # refused
-    assert out.read_text() == "// pre-existing\n"
+    assert out.read_text(encoding="utf-8") == "// pre-existing\n"
 
     rc2 = main(["scaffold", "playwright", "-o", str(out), "--force"])
     assert rc2 == 0
-    assert "QaDashboardReporter" in out.read_text()
+    assert "QaDashboardReporter" in out.read_text(encoding="utf-8")
 
 
 def test_playwright_reporter_js_is_packaged():
@@ -581,6 +581,6 @@ def test_failing_test_captures_outcome(tmp_path):
         cwd=str(p),
     )
     runs = list((p / "captures").glob("run_*"))
-    rec = json.loads(list((runs[0] / "tests").glob("*.json"))[0].read_text())
+    rec = json.loads(list((runs[0] / "tests").glob("*.json"))[0].read_text(encoding="utf-8"))
     assert rec["status"] == "fail"
     assert "kaboom" in (rec["outcome"]["longrepr"] or "")
