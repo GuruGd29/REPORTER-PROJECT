@@ -13,6 +13,7 @@ Limitations:
   * No network flows — out-of-band.
   * Screenshots optionally attached via the screenshots_dir argument.
 """
+
 from __future__ import annotations
 
 import json
@@ -26,6 +27,8 @@ from pathlib import Path
 from .. import SCHEMA_VERSION
 from .._manifest import collect_environment, collect_source
 from .._paths import make_run_dir, sanitize_nodeid
+
+__all__ = ["ingest_junit_xml"]
 
 
 _TIMESTAMP_FMT = "%Y-%m-%dT%H:%M:%S.%fZ"
@@ -78,43 +81,51 @@ def _testcase_status(tc: ET.Element) -> tuple[str, dict]:
     if failure is not None:
         msg = failure.get("message") or ""
         long = (failure.text or "").strip()
-        outcome = OrderedDict([
-            ("phase", "call"),
-            ("longrepr", long or msg),
-            ("traceback_summary", msg or long.splitlines()[0] if long else None),
-            ("stdout_tail", ""),
-            ("stderr_tail", ""),
-        ])
+        outcome = OrderedDict(
+            [
+                ("phase", "call"),
+                ("longrepr", long or msg),
+                ("traceback_summary", msg or long.splitlines()[0] if long else None),
+                ("stdout_tail", ""),
+                ("stderr_tail", ""),
+            ]
+        )
         return "fail", outcome
     if error is not None:
         msg = error.get("message") or ""
         long = (error.text or "").strip()
-        outcome = OrderedDict([
-            ("phase", "setup"),
-            ("longrepr", long or msg),
-            ("traceback_summary", msg or (long.splitlines()[0] if long else None)),
-            ("stdout_tail", ""),
-            ("stderr_tail", ""),
-        ])
+        outcome = OrderedDict(
+            [
+                ("phase", "setup"),
+                ("longrepr", long or msg),
+                ("traceback_summary", msg or (long.splitlines()[0] if long else None)),
+                ("stdout_tail", ""),
+                ("stderr_tail", ""),
+            ]
+        )
         return "error", outcome
     if skipped is not None:
         msg = skipped.get("message") or (skipped.text or "").strip() or "skipped"
-        outcome = OrderedDict([
-            ("phase", "setup"),
-            ("longrepr", f"Skipped: {msg}"),
-            ("traceback_summary", f"Skipped: {msg}"),
-            ("stdout_tail", ""),
-            ("stderr_tail", ""),
-        ])
+        outcome = OrderedDict(
+            [
+                ("phase", "setup"),
+                ("longrepr", f"Skipped: {msg}"),
+                ("traceback_summary", f"Skipped: {msg}"),
+                ("stdout_tail", ""),
+                ("stderr_tail", ""),
+            ]
+        )
         return "skip", outcome
     # Passed
-    return "pass", OrderedDict([
-        ("phase", "call"),
-        ("longrepr", None),
-        ("traceback_summary", None),
-        ("stdout_tail", ""),
-        ("stderr_tail", ""),
-    ])
+    return "pass", OrderedDict(
+        [
+            ("phase", "call"),
+            ("longrepr", None),
+            ("traceback_summary", None),
+            ("stdout_tail", ""),
+            ("stderr_tail", ""),
+        ]
+    )
 
 
 def _classname_to_file(classname: str) -> str:
@@ -140,9 +151,7 @@ def _find_screenshots(shots_dir: Path | None, *aliases: str) -> list[Path]:
     if not shots_dir or not shots_dir.exists():
         return []
     norm_aliases = [
-        a for a in (
-            re.sub(r"[^A-Za-z0-9]", "_", x).strip("_").lower() for x in aliases if x
-        ) if a
+        a for a in (re.sub(r"[^A-Za-z0-9]", "_", x).strip("_").lower() for x in aliases if x) if a
     ]
     if not norm_aliases:
         return []
@@ -187,12 +196,14 @@ def _system_out_lines(suite: ET.Element, case: ET.Element) -> list[dict]:
             lvl = "DEBUG"
         else:
             lvl = "INFO"
-        out.append({
-            "ts": _now_iso(),
-            "level": lvl,
-            "logger": "junit.system-out",
-            "message": line,
-        })
+        out.append(
+            {
+                "ts": _now_iso(),
+                "level": lvl,
+                "logger": "junit.system-out",
+                "message": line,
+            }
+        )
     return out
 
 
@@ -253,81 +264,106 @@ def ingest_junit_xml(
                 screenshots: list[dict] = []
                 step_id = 1
                 # Screenshot scan (Java-side common pattern: file name contains test method)
-                shots = _find_screenshots(screenshots_dir, name, nodeid,
-                                          classname.split(".")[-1] if classname else "")
+                shots = _find_screenshots(
+                    screenshots_dir, name, nodeid, classname.split(".")[-1] if classname else ""
+                )
                 for i, src_path in enumerate(shots, start=1):
                     dst_name = f"{test_id}_step_{step_id}_{i:03d}{src_path.suffix.lower()}"
                     dst = run_dir / "assets" / "screenshots" / dst_name
                     shutil.copyfile(src_path, dst)
-                    screenshots.append(OrderedDict([
-                        ("id", f"{test_id}_step_{step_id}_{i:03d}"),
-                        ("step_id", step_id),
-                        ("captured_at", started_at),
-                        ("filename", dst_name),
-                        ("asset_path", f"assets/screenshots/{dst_name}"),
-                        ("width", None), ("height", None),
-                        ("size_bytes", dst.stat().st_size),
-                        ("label", src_path.stem),
-                    ]))
+                    screenshots.append(
+                        OrderedDict(
+                            [
+                                ("id", f"{test_id}_step_{step_id}_{i:03d}"),
+                                ("step_id", step_id),
+                                ("captured_at", started_at),
+                                ("filename", dst_name),
+                                ("asset_path", f"assets/screenshots/{dst_name}"),
+                                ("width", None),
+                                ("height", None),
+                                ("size_bytes", dst.stat().st_size),
+                                ("label", src_path.stem),
+                            ]
+                        )
+                    )
 
                 # Single "Test execution" pseudo-step
-                steps = [OrderedDict([
-                    ("id", 1),
-                    ("name", "Test execution"),
-                    ("status", status if status in ("pass", "fail", "skip") else "fail"),
-                    ("started_at", started_at),
-                    ("ended_at", ended_at),
-                    ("duration_ms", duration_ms),
-                    ("substeps", []),
-                    ("screenshot_ids", [s["id"] for s in screenshots]),
-                    ("flow_ids", []),
-                    ("error", (
-                        {"type": "AssertionError" if status == "fail" else "Error",
-                         "message": (outcome.get("traceback_summary") or "")[:500],
-                         "traceback": outcome.get("longrepr") or ""}
-                        if status in ("fail", "error") else None
-                    )),
-                    ("skip_reason", outcome.get("traceback_summary") if status == "skip" else None),
-                ])]
+                steps = [
+                    OrderedDict(
+                        [
+                            ("id", 1),
+                            ("name", "Test execution"),
+                            ("status", status if status in ("pass", "fail", "skip") else "fail"),
+                            ("started_at", started_at),
+                            ("ended_at", ended_at),
+                            ("duration_ms", duration_ms),
+                            ("substeps", []),
+                            ("screenshot_ids", [s["id"] for s in screenshots]),
+                            ("flow_ids", []),
+                            (
+                                "error",
+                                (
+                                    {
+                                        "type": "AssertionError" if status == "fail" else "Error",
+                                        "message": (outcome.get("traceback_summary") or "")[:500],
+                                        "traceback": outcome.get("longrepr") or "",
+                                    }
+                                    if status in ("fail", "error")
+                                    else None
+                                ),
+                            ),
+                            (
+                                "skip_reason",
+                                outcome.get("traceback_summary") if status == "skip" else None,
+                            ),
+                        ]
+                    )
+                ]
 
                 console = _system_out_lines(suite, case)
 
-                record = OrderedDict([
-                    ("schema_version", SCHEMA_VERSION),
-                    ("test_id", test_id),
-                    ("nodeid", nodeid),
-                    ("name", name),
-                    ("file", _classname_to_file(classname)),
-                    ("line", None),
-                    ("status", status),
-                    ("started_at", started_at),
-                    ("ended_at", ended_at),
-                    ("duration_ms", duration_ms),
-                    ("tags", []),
-                    ("parameters", None),
-                    ("outcome", outcome),
-                    ("steps", steps),
-                    ("flows", []),
-                    ("screenshots", screenshots),
-                    ("console", console),
-                    ("device", None),
-                    ("app", None),
-                ])
+                record = OrderedDict(
+                    [
+                        ("schema_version", SCHEMA_VERSION),
+                        ("test_id", test_id),
+                        ("nodeid", nodeid),
+                        ("name", name),
+                        ("file", _classname_to_file(classname)),
+                        ("line", None),
+                        ("status", status),
+                        ("started_at", started_at),
+                        ("ended_at", ended_at),
+                        ("duration_ms", duration_ms),
+                        ("tags", []),
+                        ("parameters", None),
+                        ("outcome", outcome),
+                        ("steps", steps),
+                        ("flows", []),
+                        ("screenshots", screenshots),
+                        ("console", console),
+                        ("device", None),
+                        ("app", None),
+                    ]
+                )
                 test_records.append(record)
-                test_summaries.append(OrderedDict([
-                    ("test_id", test_id),
-                    ("nodeid", nodeid),
-                    ("name", name),
-                    ("file", _classname_to_file(classname)),
-                    ("status", status),
-                    ("started_at", started_at),
-                    ("duration_ms", duration_ms),
-                    ("step_count", 1),
-                    ("flow_count", 0),
-                    ("screenshot_count", len(screenshots)),
-                    ("tags", []),
-                    ("error_summary", outcome.get("traceback_summary")),
-                ]))
+                test_summaries.append(
+                    OrderedDict(
+                        [
+                            ("test_id", test_id),
+                            ("nodeid", nodeid),
+                            ("name", name),
+                            ("file", _classname_to_file(classname)),
+                            ("status", status),
+                            ("started_at", started_at),
+                            ("duration_ms", duration_ms),
+                            ("step_count", 1),
+                            ("flow_count", 0),
+                            ("screenshot_count", len(screenshots)),
+                            ("tags", []),
+                            ("error_summary", outcome.get("traceback_summary")),
+                        ]
+                    )
+                )
 
                 if earliest_ts is None or started_at < earliest_ts:
                     earliest_ts = started_at
@@ -338,8 +374,7 @@ def ingest_junit_xml(
     # Write per-test JSON files
     for record in test_records:
         out_path = run_dir / "tests" / f"{record['test_id']}.json"
-        out_path.write_text(json.dumps(record, ensure_ascii=False, indent=2),
-                            encoding="utf-8")
+        out_path.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
 
     # Build manifest
     summary = {
@@ -348,7 +383,8 @@ def ingest_junit_xml(
         "failed": sum(1 for t in test_summaries if t["status"] == "fail"),
         "skipped": sum(1 for t in test_summaries if t["status"] == "skip"),
         "error": sum(1 for t in test_summaries if t["status"] == "error"),
-        "xfailed": 0, "xpassed": 0,
+        "xfailed": 0,
+        "xpassed": 0,
     }
     summary["pass_rate"] = round(summary["passed"] / max(summary["total"], 1), 3)
     if summary["error"] > 0:
@@ -366,22 +402,30 @@ def ingest_junit_xml(
     if repo_label:
         src["repo"] = repo_label
 
-    manifest = OrderedDict([
-        ("schema_version", SCHEMA_VERSION),
-        ("run_id", run_id),
-        ("started_at", earliest_ts or _now_iso()),
-        ("ended_at", latest_ts or _now_iso()),
-        ("duration_ms", total_ms),
-        ("status", status),
-        ("summary", summary),
-        ("environment", env),
-        ("source", src),
-        ("config", {"ingestor": "junit-xml",
+    manifest = OrderedDict(
+        [
+            ("schema_version", SCHEMA_VERSION),
+            ("run_id", run_id),
+            ("started_at", earliest_ts or _now_iso()),
+            ("ended_at", latest_ts or _now_iso()),
+            ("duration_ms", total_ms),
+            ("status", status),
+            ("summary", summary),
+            ("environment", env),
+            ("source", src),
+            (
+                "config",
+                {
+                    "ingestor": "junit-xml",
                     "inputs": [str(p) for p in xml_files],
                     "screenshots_dir": str(screenshots_dir) if screenshots_dir else None,
-                    "command_line": ""}),
-        ("tests", test_summaries),
-    ])
+                    "command_line": "",
+                },
+            ),
+            ("tests", test_summaries),
+        ]
+    )
     (run_dir / "manifest.json").write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     return run_dir

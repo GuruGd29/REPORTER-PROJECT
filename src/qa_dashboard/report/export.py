@@ -10,20 +10,19 @@ Public API:
 
 CLI integration: see ``qa_dashboard.cli.main``.
 """
+
 from __future__ import annotations
 
 import csv
 import json
-import shutil
 import zipfile
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _load_manifest(run_dir: Path) -> dict:
     manifest_path = run_dir / "manifest.json"
@@ -46,25 +45,28 @@ def _load_test_records(run_dir: Path) -> list[dict]:
 
 
 def _row_for_test(t: dict) -> OrderedDict:
-    return OrderedDict([
-        ("test_id", t.get("test_id", "")),
-        ("nodeid", t.get("nodeid", "")),
-        ("name", t.get("name", "")),
-        ("file", t.get("file", "")),
-        ("status", t.get("status", "")),
-        ("started_at", t.get("started_at", "")),
-        ("duration_ms", t.get("duration_ms", 0)),
-        ("step_count", t.get("step_count", 0)),
-        ("flow_count", t.get("flow_count", 0)),
-        ("screenshot_count", t.get("screenshot_count", 0)),
-        ("tags", ", ".join(t.get("tags") or [])),
-        ("error_summary", t.get("error_summary") or ""),
-    ])
+    return OrderedDict(
+        [
+            ("test_id", t.get("test_id", "")),
+            ("nodeid", t.get("nodeid", "")),
+            ("name", t.get("name", "")),
+            ("file", t.get("file", "")),
+            ("status", t.get("status", "")),
+            ("started_at", t.get("started_at", "")),
+            ("duration_ms", t.get("duration_ms", 0)),
+            ("step_count", t.get("step_count", 0)),
+            ("flow_count", t.get("flow_count", 0)),
+            ("screenshot_count", t.get("screenshot_count", 0)),
+            ("tags", ", ".join(t.get("tags") or [])),
+            ("error_summary", t.get("error_summary") or ""),
+        ]
+    )
 
 
 # ---------------------------------------------------------------------------
 # CSV
 # ---------------------------------------------------------------------------
+
 
 def export_csv(run_dir: Path, out_path: Path) -> Path:
     """Export the test summary as a CSV (opens directly in Excel/Numbers)."""
@@ -86,6 +88,7 @@ def export_csv(run_dir: Path, out_path: Path) -> Path:
 # JSON (bundles manifest + all test records into one file)
 # ---------------------------------------------------------------------------
 
+
 def export_json(run_dir: Path, out_path: Path) -> Path:
     """Export the full run as a single JSON file (manifest + all test records)."""
     run_dir = Path(run_dir)
@@ -95,14 +98,14 @@ def export_json(run_dir: Path, out_path: Path) -> Path:
         "tests": _load_test_records(run_dir),
     }
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(bundle, ensure_ascii=False, indent=2),
-                        encoding="utf-8")
+    out_path.write_text(json.dumps(bundle, ensure_ascii=False, indent=2), encoding="utf-8")
     return out_path
 
 
 # ---------------------------------------------------------------------------
 # ZIP (whole run directory)
 # ---------------------------------------------------------------------------
+
 
 def export_zip(run_dir: Path, out_path: Path) -> Path:
     """Zip the whole run directory so it can be emailed/shared."""
@@ -129,9 +132,9 @@ def export_zip(run_dir: Path, out_path: Path) -> Path:
 # ---------------------------------------------------------------------------
 
 _STATUS_FILL = {
-    "pass":  "C6EFCE",
-    "fail":  "FFC7CE",
-    "skip":  "FFEB9C",
+    "pass": "C6EFCE",
+    "fail": "FFC7CE",
+    "skip": "FFEB9C",
     "error": "FFC7CE",
 }
 
@@ -144,8 +147,7 @@ def export_xlsx(run_dir: Path, out_path: Path) -> Path:
         from openpyxl.utils import get_column_letter
     except ImportError as e:
         raise ImportError(
-            "openpyxl is required for XLSX export. "
-            "Install with: pip install qa-dashboard[xlsx]"
+            "openpyxl is required for XLSX export. Install with: pip install qa-dashboard[xlsx]"
         ) from e
 
     run_dir = Path(run_dir)
@@ -194,8 +196,19 @@ def export_xlsx(run_dir: Path, out_path: Path) -> Path:
 
     # ----- Sheet 2: Tests -----
     ws2 = wb.create_sheet("Tests")
-    headers = ["#", "test_id", "name", "file", "status", "duration_ms",
-               "steps", "API calls", "screenshots", "tags", "error_summary"]
+    headers = [
+        "#",
+        "test_id",
+        "name",
+        "file",
+        "status",
+        "duration_ms",
+        "steps",
+        "API calls",
+        "screenshots",
+        "tags",
+        "error_summary",
+    ]
     for i, h in enumerate(headers, start=1):
         c = ws2.cell(row=1, column=i, value=h)
         c.font = Font(bold=True)
@@ -205,12 +218,19 @@ def export_xlsx(run_dir: Path, out_path: Path) -> Path:
     for i, w in enumerate(widths, start=1):
         ws2.column_dimensions[get_column_letter(i)].width = w
     for r, t in enumerate(manifest.get("tests", []), start=2):
-        cells = [r - 1, t.get("test_id", ""), t.get("name", ""),
-                 t.get("file", ""), t.get("status", ""),
-                 t.get("duration_ms", 0), t.get("step_count", 0),
-                 t.get("flow_count", 0), t.get("screenshot_count", 0),
-                 ", ".join(t.get("tags") or []),
-                 t.get("error_summary") or ""]
+        cells = [
+            r - 1,
+            t.get("test_id", ""),
+            t.get("name", ""),
+            t.get("file", ""),
+            t.get("status", ""),
+            t.get("duration_ms", 0),
+            t.get("step_count", 0),
+            t.get("flow_count", 0),
+            t.get("screenshot_count", 0),
+            ", ".join(t.get("tags") or []),
+            t.get("error_summary") or "",
+        ]
         for c_idx, val in enumerate(cells, start=1):
             cell = ws2.cell(row=r, column=c_idx, value=val)
             if c_idx == 5:  # status column
@@ -221,9 +241,19 @@ def export_xlsx(run_dir: Path, out_path: Path) -> Path:
 
     # ----- Sheet 3: Steps (one row per step across all tests) -----
     ws3 = wb.create_sheet("Steps")
-    headers3 = ["test_id", "test_name", "step_id", "step_name", "status",
-                "duration_ms", "substeps", "screenshots", "API calls",
-                "error_type", "error_message"]
+    headers3 = [
+        "test_id",
+        "test_name",
+        "step_id",
+        "step_name",
+        "status",
+        "duration_ms",
+        "substeps",
+        "screenshots",
+        "API calls",
+        "error_type",
+        "error_message",
+    ]
     for i, h in enumerate(headers3, start=1):
         c = ws3.cell(row=1, column=i, value=h)
         c.font = Font(bold=True)
@@ -237,8 +267,11 @@ def export_xlsx(run_dir: Path, out_path: Path) -> Path:
         for step in rec.get("steps", []):
             err = step.get("error") or {}
             vals = [
-                t["test_id"], t["name"], step.get("id"),
-                step.get("name"), step.get("status"),
+                t["test_id"],
+                t["name"],
+                step.get("id"),
+                step.get("name"),
+                step.get("status"),
                 step.get("duration_ms", 0),
                 len(step.get("substeps", [])),
                 len(step.get("screenshot_ids", [])),
@@ -257,8 +290,16 @@ def export_xlsx(run_dir: Path, out_path: Path) -> Path:
 
     # ----- Sheet 4: Network -----
     ws4 = wb.create_sheet("Network")
-    headers4 = ["test_id", "step_id", "method", "host", "path",
-                "status_code", "duration_ms", "timestamp"]
+    headers4 = [
+        "test_id",
+        "step_id",
+        "method",
+        "host",
+        "path",
+        "status_code",
+        "duration_ms",
+        "timestamp",
+    ]
     for i, h in enumerate(headers4, start=1):
         c = ws4.cell(row=1, column=i, value=h)
         c.font = Font(bold=True)
@@ -292,16 +333,16 @@ def export_xlsx(run_dir: Path, out_path: Path) -> Path:
 # DOCX (requires python-docx)
 # ---------------------------------------------------------------------------
 
+
 def export_docx(run_dir: Path, out_path: Path) -> Path:
     """Export a Word document with summary + per-test detail sections."""
     try:
         from docx import Document
         from docx.enum.text import WD_ALIGN_PARAGRAPH
-        from docx.shared import Inches, Pt, RGBColor
+        from docx.shared import Inches, Pt
     except ImportError as e:
         raise ImportError(
-            "python-docx is required for DOCX export. "
-            "Install with: pip install qa-dashboard[docx]"
+            "python-docx is required for DOCX export. Install with: pip install qa-dashboard[docx]"
         ) from e
 
     run_dir = Path(run_dir)
@@ -325,8 +366,7 @@ def export_docx(run_dir: Path, out_path: Path) -> Path:
     doc.add_paragraph(f"Started: {manifest.get('started_at', '')}")
     doc.add_paragraph(f"Duration: {manifest.get('duration_ms', 0)} ms")
     if src.get("branch") or src.get("commit"):
-        doc.add_paragraph(
-            f"Source: branch {src.get('branch', '')} commit {src.get('commit', '')}")
+        doc.add_paragraph(f"Source: branch {src.get('branch', '')} commit {src.get('commit', '')}")
 
     doc.add_heading("Summary", level=1)
     tbl = doc.add_table(rows=1, cols=2)
@@ -365,8 +405,7 @@ def export_docx(run_dir: Path, out_path: Path) -> Path:
         row[4].text = (t_summary.get("error_summary") or "")[:200]
 
     # Failed-test detail (only failed/error to keep doc readable)
-    failed = [t for t in manifest.get("tests", [])
-              if t.get("status") in ("fail", "error")]
+    failed = [t for t in manifest.get("tests", []) if t.get("status") in ("fail", "error")]
     if failed:
         doc.add_page_break()
         doc.add_heading("Failed test details", level=1)
@@ -388,8 +427,7 @@ def export_docx(run_dir: Path, out_path: Path) -> Path:
                     continue
                 doc.add_paragraph(f"Step {step['id']}: {step['name']}", style="Intense Quote")
                 for shot_id in step.get("screenshot_ids", []):
-                    shot = next((s for s in rec.get("screenshots", [])
-                                 if s["id"] == shot_id), None)
+                    shot = next((s for s in rec.get("screenshots", []) if s["id"] == shot_id), None)
                     if not shot:
                         continue
                     asset = run_dir / shot["asset_path"]
@@ -425,8 +463,5 @@ EXPORTERS = {
 def export(run_dir: Path, fmt: str, out_path: Path) -> Path:
     fmt = fmt.lower()
     if fmt not in EXPORTERS:
-        raise ValueError(
-            f"Unknown export format {fmt!r}. "
-            f"Supported: {sorted(EXPORTERS.keys())}"
-        )
+        raise ValueError(f"Unknown export format {fmt!r}. Supported: {sorted(EXPORTERS.keys())}")
     return EXPORTERS[fmt](Path(run_dir), Path(out_path))

@@ -34,6 +34,7 @@ The capture context auto-resolves the run directory + active test, so
 no other wiring is needed when running under pytest with the
 qa-dashboard plugin enabled.
 """
+
 from __future__ import annotations
 
 import base64
@@ -42,11 +43,13 @@ import json
 import logging
 import os
 import threading
+from collections.abc import Iterator
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 from urllib.parse import urlsplit
 
+from qa_dashboard._redact import Redactor, load_default_redactor
 
 __all__ = [
     "FlowSink",
@@ -96,8 +99,12 @@ def _decode_body(raw: bytes | None, content_type: str | None) -> tuple[str, Any,
         except Exception:
             pass
     text_like = (
-        "text" in ct or "xml" in ct or "html" in ct or "javascript" in ct
-        or "form-urlencoded" in ct or ct == ""
+        "text" in ct
+        or "xml" in ct
+        or "html" in ct
+        or "javascript" in ct
+        or "form-urlencoded" in ct
+        or ct == ""
     )
     if text_like:
         try:
@@ -154,6 +161,7 @@ class FlowSink:
         *,
         test_id: str | None = None,
         host_filter: str = "",
+        redactor: Redactor | None = None,
     ) -> None:
         resolved = resolve_run_dir(run_dir)
         if resolved is None:
@@ -170,6 +178,7 @@ class FlowSink:
         self._handles: dict[str, Any] = {}
         self._counters: dict[str, int] = {}
         self._lock = threading.Lock()
+        self._redactor = redactor if redactor is not None else load_default_redactor()
 
     @property
     def run_dir(self) -> Path:
@@ -245,6 +254,10 @@ class FlowSink:
             resp_ct = resp_h.get("content-type", "")
             req_enc, req_b, req_size = _decode_body(request_body, req_ct)
             resp_enc, resp_b, resp_size = _decode_body(response_body, resp_ct)
+            if req_enc == "json":
+                req_b = self._redactor.redact_body(req_b)
+            if resp_enc == "json":
+                resp_b = self._redactor.redact_body(resp_b)
             rec = {
                 "id": self._next_id(test_id),
                 "timestamp": timestamp or _now_iso(),
@@ -256,14 +269,14 @@ class FlowSink:
                 "duration_ms": max(int(duration_ms or 0), 0),
                 "step_id": step_id,
                 "request": {
-                    "headers": req_h,
+                    "headers": self._redactor.redact_headers(req_h),
                     "content_type": req_ct,
                     "body_encoding": req_enc,
                     "body_size_bytes": req_size,
                     "body": req_b,
                 },
                 "response": {
-                    "headers": resp_h,
+                    "headers": self._redactor.redact_headers(resp_h),
                     "content_type": resp_ct,
                     "body_encoding": resp_enc,
                     "body_size_bytes": resp_size,
@@ -339,7 +352,8 @@ class _CdpListener:
                 "request_headers": resp.get("requestHeaders") or {},
                 "method": (
                     resp.get("requestHeadersText", "GET").split(" ", 1)[0]
-                    if resp.get("requestHeadersText") else "GET"
+                    if resp.get("requestHeadersText")
+                    else "GET"
                 ),
                 "started_ts": float(params.get("timestamp") or 0.0),
             }
@@ -355,7 +369,8 @@ class _CdpListener:
         body = None
         try:
             res = self._driver.execute_cdp_cmd(
-                "Network.getResponseBody", {"requestId": req_id},
+                "Network.getResponseBody",
+                {"requestId": req_id},
             )
             data = res.get("body") or ""
             if res.get("base64Encoded"):

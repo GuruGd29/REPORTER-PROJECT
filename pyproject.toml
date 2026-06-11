@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "qa-dashboard"
-version = "0.7.0"
-description = "Suite-level pytest HTML dashboard with unified network capture (mitmproxy / Playwright native / Selenium 4 BiDi / HAR ingest), steps, screenshots, and multi-format export (PDF/CSV/JSON/XLSX/DOCX/ZIP)."
+version = "0.8.0"
+description = "Production-grade pytest HTML dashboard with unified network capture (mitmproxy / Playwright native / Selenium 4 BiDi / HAR ingest), header/body redaction, doctor health checks, and multi-format export (PDF/CSV/JSON/XLSX/DOCX/ZIP)."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -19,17 +19,29 @@ classifiers = [
     "Topic :: Software Development :: Testing",
 ]
 dependencies = [
-    "pytest>=7.0",
-    "mitmproxy>=11.0",
+    "pytest>=7.0,<10",
 ]
 
 [project.optional-dependencies]
+mitm = ["mitmproxy>=11.0,<13"]
 imaging = ["Pillow>=10.0"]
 xlsx = ["openpyxl>=3.1"]
 docx = ["python-docx>=1.1"]
 export = ["openpyxl>=3.1", "python-docx>=1.1"]
-all = ["Pillow>=10.0", "openpyxl>=3.1", "python-docx>=1.1"]
-dev = ["pytest-cov", "ruff", "openpyxl>=3.1", "python-docx>=1.1"]
+all = [
+    "mitmproxy>=11.0,<13",
+    "Pillow>=10.0",
+    "openpyxl>=3.1",
+    "python-docx>=1.1",
+]
+dev = [
+    "pytest-cov>=4.1",
+    "ruff>=0.4",
+    "mypy>=1.10",
+    "openpyxl>=3.1",
+    "python-docx>=1.1",
+    "Pillow>=10.0",
+]
 
 [project.entry-points.pytest11]
 qa_dashboard = "qa_dashboard.pytest_plugin"
@@ -45,4 +57,86 @@ artifacts = [
     "src/qa_dashboard/integrations/webdriverio/*",
     "src/qa_dashboard/integrations/selenium/*",
 ]
+
+# -------------------------------------------------------------------
+# Tooling configuration
+# -------------------------------------------------------------------
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+filterwarnings = [
+    "error",
+    "ignore::DeprecationWarning:pytest.*",
+    "ignore::DeprecationWarning:_pytest.*",
+]
+
+[tool.coverage.run]
+source = ["src/qa_dashboard"]
+branch = true
+omit = [
+    "*/integrations/playwright/*.js",
+    "*/integrations/webdriverio/*.js",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]
+skip_covered = false
+show_missing = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = ["dist", "build", ".venv", ".venv-*", "captures"]
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "I",      # isort
+    "B",      # bugbear
+    "UP",     # pyupgrade
+    "SIM",    # simplify
+    "RUF",    # ruff-specific
+]
+ignore = [
+    "E501",   # line length handled by formatter
+    "B008",   # function call in default argument (FastAPI/click patterns)
+    "SIM105", # try/except/pass is fine; contextlib.suppress is a style choice
+    "SIM108", # ternary readability is taste
+    "RUF015", # next(iter(...)) is not always more readable than list[0]
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]            # assert False is fine in tests
+
+[tool.mypy]
+# Gate enforced on the v0.8.0 public API surface. Existing modules
+# (pytest_plugin, mitm_addon, junit_xml, har) have pre-existing
+# annotation gaps and are tracked as follow-up; tightening them is
+# scheduled for v0.9.
+python_version = "3.10"
+strict_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_unreachable = true
+no_implicit_optional = true
+check_untyped_defs = true
+files = [
+    "src/qa_dashboard/__init__.py",
+    "src/qa_dashboard/_redact.py",
+    "src/qa_dashboard/doctor.py",
+    "src/qa_dashboard/bundle/schemas.py",
+    "src/qa_dashboard/integrations/selenium/__init__.py",
+]
+
+[[tool.mypy.overrides]]
+module = ["mitmproxy.*", "openpyxl.*", "docx.*", "PIL.*"]
+ignore_missing_imports = true
 

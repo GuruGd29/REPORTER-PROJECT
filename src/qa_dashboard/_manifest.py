@@ -44,16 +44,18 @@ def collect_environment() -> dict:
         user = getpass.getuser()
     except Exception:
         user = None
-    return OrderedDict([
-        ("pytest", pytest_ver),
-        ("python", sys.version.split()[0]),
-        ("platform", platform.platform()),
-        ("mitmproxy", mitm_ver),
-        ("qa_dashboard", __version__),
-        ("hostname", host),
-        ("user", user),
-        ("cwd", str(Path.cwd())),
-    ])
+    return OrderedDict(
+        [
+            ("pytest", pytest_ver),
+            ("python", sys.version.split()[0]),
+            ("platform", platform.platform()),
+            ("mitmproxy", mitm_ver),
+            ("qa_dashboard", __version__),
+            ("hostname", host),
+            ("user", user),
+            ("cwd", str(Path.cwd())),
+        ]
+    )
 
 
 def collect_source() -> dict:
@@ -72,13 +74,15 @@ def collect_source() -> dict:
             trigger = "ci"
         else:
             trigger = "local"
-    return OrderedDict([
-        ("repo", repo),
-        ("branch", branch),
-        ("commit", commit),
-        ("commit_message", commit_msg),
-        ("trigger", trigger),
-    ])
+    return OrderedDict(
+        [
+            ("repo", repo),
+            ("branch", branch),
+            ("commit", commit),
+            ("commit_message", commit_msg),
+            ("trigger", trigger),
+        ]
+    )
 
 
 class ManifestWriter:
@@ -87,28 +91,35 @@ class ManifestWriter:
     def __init__(self, run_dir: Path, run_id: str, config: dict, pretty: bool = True) -> None:
         self._path = Path(run_dir) / "manifest.json"
         self._pretty = pretty
-        self._data: dict[str, Any] = OrderedDict([
-            ("schema_version", SCHEMA_VERSION),
-            ("run_id", run_id),
-            ("started_at", now_iso()),
-            ("ended_at", None),
-            ("duration_ms", None),
-            ("status", "in_progress"),
-            ("summary", OrderedDict([
-                ("total", 0),
-                ("passed", 0),
-                ("failed", 0),
-                ("skipped", 0),
-                ("error", 0),
-                ("xfailed", 0),
-                ("xpassed", 0),
-                ("pass_rate", 0.0),
-            ])),
-            ("environment", collect_environment()),
-            ("source", collect_source()),
-            ("config", config),
-            ("tests", []),
-        ])
+        self._data: dict[str, Any] = OrderedDict(
+            [
+                ("schema_version", SCHEMA_VERSION),
+                ("run_id", run_id),
+                ("started_at", now_iso()),
+                ("ended_at", None),
+                ("duration_ms", None),
+                ("status", "in_progress"),
+                (
+                    "summary",
+                    OrderedDict(
+                        [
+                            ("total", 0),
+                            ("passed", 0),
+                            ("failed", 0),
+                            ("skipped", 0),
+                            ("error", 0),
+                            ("xfailed", 0),
+                            ("xpassed", 0),
+                            ("pass_rate", 0.0),
+                        ]
+                    ),
+                ),
+                ("environment", collect_environment()),
+                ("source", collect_source()),
+                ("config", config),
+                ("tests", []),
+            ]
+        )
 
     def started_at(self) -> str:
         return self._data["started_at"]
@@ -118,6 +129,7 @@ class ManifestWriter:
         tmp = self._path.with_suffix(".tmp")
         tmp.write_text(text, encoding="utf-8")
         import os
+
         os.replace(tmp, self._path)
 
     def add_test_summary(self, summary: dict) -> None:
@@ -139,6 +151,7 @@ class ManifestWriter:
     def finalize(self) -> None:
         end = now_iso()
         from ._paths import ms_between_iso
+
         self._data["ended_at"] = end
         self._data["duration_ms"] = ms_between_iso(self._data["started_at"], end)
         s = self._data["summary"]

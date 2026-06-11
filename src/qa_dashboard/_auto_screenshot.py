@@ -16,10 +16,10 @@ Detection rules (first match wins):
 Returns ``None`` silently if nothing usable is found — auto-screenshot
 is purely a bonus, never a failure mode.
 """
+
 from __future__ import annotations
 
 from typing import Any
-
 
 _PREFERRED_NAMES = ("page", "driver", "browser_page", "browser", "appium_driver")
 

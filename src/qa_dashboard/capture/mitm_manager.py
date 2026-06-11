@@ -4,7 +4,6 @@ import logging
 import os
 import socket
 import subprocess
-import sys
 import time
 from pathlib import Path
 
@@ -28,9 +27,7 @@ class MitmManager:
         self._run_dir = Path(run_dir)
         self._port = int(port)
         self._host_filter = host_filter or ""
-        self._addon_path = addon_path or (
-            Path(__file__).parent / "mitm_addon.py"
-        )
+        self._addon_path = addon_path or (Path(__file__).parent / "mitm_addon.py")
         self._proc: subprocess.Popen | None = None
         self._is_running = False
 
@@ -49,8 +46,10 @@ class MitmManager:
         env["QA_DASHBOARD_HOST_FILTER"] = self._host_filter
         cmd = [
             "mitmdump",
-            "-p", str(self._port),
-            "-s", str(self._addon_path),
+            "-p",
+            str(self._port),
+            "-s",
+            str(self._addon_path),
             "-q",
         ]
         try:
@@ -61,11 +60,18 @@ class MitmManager:
                 stderr=subprocess.PIPE,
             )
         except FileNotFoundError:
-            log.warning("mitmdump not found on PATH; network capture disabled")
+            log.warning(
+                "mitmdump not found on PATH; network capture disabled. "
+                "Install with `pip install qa-dashboard[mitm]` or pass "
+                "--qa-dashboard-mitm-skip to silence this warning."
+            )
             self._is_running = False
             return
-        except Exception as e:  # pragma: no cover
-            log.warning("failed to spawn mitmdump: %s; network capture disabled", e)
+        except OSError as e:
+            log.warning(
+                "failed to spawn mitmdump (%s); network capture disabled",
+                e,
+            )
             self._is_running = False
             return
 
@@ -86,15 +92,16 @@ class MitmManager:
         # Did not come up
         log.warning(
             "mitmdump did not start within %.1fs on port %d; network capture disabled",
-            timeout, self._port,
+            timeout,
+            self._port,
         )
         self._is_running = False
         # Best-effort kill the process so it doesn't leak
         if self._proc and self._proc.poll() is None:
             try:
                 self._proc.terminate()
-            except Exception:
-                pass
+            except OSError as e:
+                log.debug("could not terminate stuck mitmdump: %s", e)
 
     def stop(self, timeout: float = 3.0) -> None:
         if not self._proc:
