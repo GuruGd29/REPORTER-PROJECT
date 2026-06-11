@@ -21,7 +21,98 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_scaffold(argv[1:])
     if argv and argv[0] == "doctor":
         return _cmd_doctor(argv[1:])
+    if argv and argv[0] == "publish-static":
+        return _cmd_publish_static(argv[1:])
     return _cmd_default(argv)
+
+
+def _cmd_publish_static(argv: list[str]) -> int:
+    """qa-dashboard publish-static <run-dir> --to <destination>"""
+    p = argparse.ArgumentParser(
+        prog="qa-dashboard publish-static",
+        description=(
+            "Upload a run directory to a static destination (S3-compatible "
+            "bucket or local filesystem) and refresh a rolling index of "
+            "recent runs. Allure-style hosting with no backend."
+        ),
+    )
+    p.add_argument("run_dir", type=Path, help="Run directory to publish")
+    p.add_argument(
+        "--to",
+        required=True,
+        dest="destination",
+        help="Destination URL: s3://bucket[/prefix] or file:///path/to/dir",
+    )
+    p.add_argument(
+        "--brand-color",
+        default=None,
+        help="Re-render the HTML with this brand color before publishing",
+    )
+    p.add_argument(
+        "--rollup-window",
+        type=int,
+        default=50,
+        help="How many recent runs to keep in the rollup index (default: 50)",
+    )
+    p.add_argument(
+        "--no-rollup",
+        action="store_true",
+        help="Skip updating the rollup index.html / runs.json",
+    )
+    # S3 cred passthrough (env vars work too).
+    p.add_argument(
+        "--public", action="store_true", help="(S3 only) set ACL=public-read on uploaded objects"
+    )
+    p.add_argument("--access-key", default=None, help="(S3) AWS access key ID")
+    p.add_argument("--secret-key", default=None, help="(S3) AWS secret access key")
+    p.add_argument("--region", default=None, help="(S3) AWS region")
+    p.add_argument(
+        "--endpoint-url", default=None, help="(S3) Custom endpoint URL (R2, B2, MinIO, etc.)"
+    )
+    p.add_argument(
+        "--force-path-style",
+        action="store_true",
+        help="(S3) Use path-style addressing (some non-AWS providers)",
+    )
+    args = p.parse_args(argv)
+
+    if not args.run_dir.exists():
+        print(f"qa-dashboard: no such directory: {args.run_dir}", file=sys.stderr)
+        return 2
+
+    from .publish import PublisherError, publish_static
+
+    s3_kwargs = {
+        k: v
+        for k, v in {
+            "public": args.public,
+            "access_key": args.access_key,
+            "secret_key": args.secret_key,
+            "region": args.region,
+            "endpoint_url": args.endpoint_url,
+            "force_path_style": args.force_path_style,
+        }.items()
+        if v not in (None, False)
+    }
+    try:
+        result = publish_static(
+            args.run_dir,
+            args.destination,
+            brand_color=args.brand_color,
+            rollup_window=args.rollup_window,
+            skip_rollup=args.no_rollup,
+            s3_kwargs=s3_kwargs,
+        )
+    except PublisherError as e:
+        print(f"qa-dashboard: {e}", file=sys.stderr)
+        return 3
+
+    print(f"Published {result.run_id} ({result.files_uploaded} files) -> {result.destination}")
+    if result.run_url:
+        print(f"  Run:    {result.run_url}")
+    if result.rollup_url:
+        print(f"  Index:  {result.rollup_url}")
+    return 0
 
 
 def _cmd_doctor(argv: list[str]) -> int:

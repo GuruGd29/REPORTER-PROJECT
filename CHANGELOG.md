@@ -8,6 +8,30 @@ the stability commitments described in **Stability policy** at the bottom.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-06-12
+
+### Added
+- `qa-dashboard publish-static <run-dir> --to <destination>` — uploads
+  a run to any S3-compatible bucket or local filesystem path and
+  refreshes a rolling `index.html` of recent runs at the destination
+  root. The Allure-style hosting model: no backend, no database, no
+  Docker. Supports AWS S3, Cloudflare R2, Backblaze B2, MinIO,
+  DigitalOcean Spaces, and `file:///` for GitHub Pages workflows.
+- New `[publish]` optional dependency adds `boto3` for S3 publishing.
+- `qa_dashboard.publish` Python API (`Publisher`,
+  `FilesystemPublisher`, `S3Publisher`, `publish_static`) for
+  programmatic use.
+- 21 new unit tests for the publish path (filesystem end-to-end,
+  rollup merging + trimming + dedupe, S3 mocked).
+
+### Notes
+- A microservices "cloud MVP" was briefly scaffolded earlier in this
+  release cycle and then **deliberately abandoned** in favour of
+  static hosting. Static publishing matches how 90%+ of teams actually
+  share test reports (the Allure model) and adds zero operational
+  surface compared to a hosted service. If multi-tenant SaaS becomes
+  a real requirement later, the cloud track can be revisited.
+
 ## [0.8.0] - 2026-06-11
 
 ### Added

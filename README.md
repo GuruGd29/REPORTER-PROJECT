@@ -410,6 +410,74 @@ Validates the manifest and per-test JSON records, cross-references
 flows/screenshots/steps, and exits non-zero on any structural issue.
 Useful in CI right after a test run, before publishing the report.
 
+## Publish reports as a static site (Allure-style hosting)
+
+```bash
+pip install "qa-dashboard[publish]"
+qa-dashboard publish-static captures/run_xxx --to s3://my-bucket/qa-reports
+```
+
+Uploads the run to any S3-compatible bucket and refreshes a rolling
+**`index.html`** at the destination root listing the most recent 50
+runs. Click any row → opens the full HTML report.
+
+**No backend, no database, no Docker.** Everything is static files.
+Same model as Allure HTML reports or Playwright's HTML reporter, with
+qa-dashboard's richer per-step data.
+
+### Supported destinations
+
+| URL form | Backend |
+|---|---|
+| `s3://bucket/prefix` | AWS S3 |
+| `s3://bucket/prefix` + `--endpoint-url https://...` | Cloudflare R2, Backblaze B2, MinIO, DigitalOcean Spaces, any S3-compatible store |
+| `file:///abs/path` | Local filesystem (great for testing or `rsync` into a GitHub Pages branch) |
+
+### Common patterns
+
+**GitHub Pages** — let your CI write into a `gh-pages` checkout:
+
+```yaml
+- run: qa-dashboard publish-static captures/run_* --to file://./gh-pages-build
+- uses: peaceiris/actions-gh-pages@v3
+  with:
+    publish_dir: ./gh-pages-build
+```
+
+**S3 + CloudFront / Cloudflare R2 public bucket**:
+
+```bash
+qa-dashboard publish-static captures/run_xxx \
+    --to s3://qa-reports.example.com/main \
+    --endpoint-url https://<account>.r2.cloudflarestorage.com \
+    --public
+# Reports live at https://qa-reports.example.com/main/index.html
+```
+
+**Local preview** during development:
+
+```bash
+qa-dashboard publish-static captures/run_xxx --to file://./out
+python -m http.server -d ./out 8080
+# Open http://localhost:8080
+```
+
+### Options
+
+| Flag | Default | Effect |
+|---|---|---|
+| `--to` | (required) | Destination URL |
+| `--brand-color` | (none) | Re-render HTML with this color before publishing |
+| `--rollup-window` | `50` | How many recent runs to keep in the rollup index |
+| `--no-rollup` | off | Skip refreshing the rollup `index.html` / `runs.json` |
+| `--public` | off | (S3) Set `ACL=public-read` on uploaded objects |
+| `--access-key`, `--secret-key`, `--region`, `--endpoint-url`, `--force-path-style` | from env / boto3 default chain | S3 credential overrides |
+
+The rollup is read-modify-write: the publisher reads the existing
+`runs.json` from the destination, prepends the new run, trims to
+`--rollup-window`, and rewrites. Re-publishing the same `run_id`
+replaces rather than duplicates.
+
 ## Stability policy
 
 qa-dashboard follows SemVer. Within `0.x`:
