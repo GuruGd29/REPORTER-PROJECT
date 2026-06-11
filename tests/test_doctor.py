@@ -54,7 +54,7 @@ def test_diagnose_corrupt_manifest_json(tmp_path: Path):
 
 
 def test_diagnose_detects_orphan_test_in_manifest(healthy_run: Path):
-    manifest = json.loads((healthy_run / "manifest.json").read_text())
+    manifest = json.loads((healthy_run / "manifest.json").read_text(encoding="utf-8"))
     manifest["tests"].append(
         {
             "test_id": "t999_ghost",

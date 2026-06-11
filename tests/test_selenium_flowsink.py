@@ -70,7 +70,8 @@ def test_flowsink_assigns_sequential_ids(run_dir: Path):
     sink.close()
 
     records = [
-        json.loads(line) for line in (run_dir / "_flows" / "t002_x.jsonl").read_text().splitlines()
+        json.loads(line)
+        for line in (run_dir / "_flows" / "t002_x.jsonl").read_text(encoding="utf-8").splitlines()
     ]
     assert [r["id"] for r in records] == [0, 1, 2]
 
@@ -86,7 +87,7 @@ def test_flowsink_respects_host_filter(run_dir: Path):
     sink.record(method="GET", url="https://other.com/", status_code=200)
     sink.close()
 
-    lines = (run_dir / "_flows" / "t003_y.jsonl").read_text().splitlines()
+    lines = (run_dir / "_flows" / "t003_y.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(lines) == 1
     assert json.loads(lines[0])["host"] == "example.com"
 
@@ -106,7 +107,9 @@ def test_flowsink_applies_redaction(run_dir: Path):
     )
     sink.close()
 
-    rec = json.loads((run_dir / "_flows" / "t004_z.jsonl").read_text().splitlines()[0])
+    rec = json.loads(
+        (run_dir / "_flows" / "t004_z.jsonl").read_text(encoding="utf-8").splitlines()[0]
+    )
     assert rec["request"]["headers"]["authorization"] == "***"
     assert rec["request"]["body"]["password"] == "***"
     assert rec["request"]["body"]["username"] == "alice"
