@@ -255,8 +255,8 @@ def make_publisher(destination: str, **s3_kwargs: Any) -> Publisher:
             raise PublisherError(f"missing bucket in destination: {destination!r}")
         prefix = parsed.path.lstrip("/")
         return S3Publisher(bucket=bucket, prefix=prefix, **s3_kwargs)
-    if not scheme:
-        # Treat as a local path (no scheme)
+    if not scheme or (len(scheme) == 1 and scheme.isalpha()):
+        # No scheme, or a single letter that is a Windows drive letter (e.g. "C:\...").
         return FilesystemPublisher(Path(destination))
     raise PublisherError(f"unsupported destination scheme {scheme!r}; expected s3:// or file://")
 
@@ -266,8 +266,27 @@ def make_publisher(destination: str, **s3_kwargs: Any) -> Publisher:
 # ---------------------------------------------------------------------------
 
 
+_MIME_OVERRIDES = {
+    ".html": "text/html",
+    ".json": "application/json",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+    ".svg": "image/svg+xml",
+    ".css": "text/css",
+    ".js": "application/javascript",
+    ".txt": "text/plain",
+}
+
+
 def _content_type_for(path: Path) -> str:
-    # mimetypes covers the common cases; default to octet-stream.
+    # Hardcoded overrides first — mimetypes on Windows reads the registry,
+    # which may be missing newer types like .webp.
+    known = _MIME_OVERRIDES.get(path.suffix.lower())
+    if known:
+        return known
     guessed, _ = mimetypes.guess_type(path.name)
     return guessed or "application/octet-stream"
 
