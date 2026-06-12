@@ -197,7 +197,7 @@ def _maybe_downscale(png_bytes: bytes, max_width: int) -> bytes:
     try:
         import io
 
-        from PIL import Image  # type: ignore
+        from PIL import Image  # type: ignore[import-untyped]
     except ImportError as e:  # pragma: no cover
         raise ImportError(
             "Pillow is required for --qa-dashboard-screenshot-max-width. "
@@ -205,9 +205,9 @@ def _maybe_downscale(png_bytes: bytes, max_width: int) -> bytes:
         ) from e
     try:
         img = Image.open(io.BytesIO(png_bytes))
-        ratio = max_width / w
-        new_h = max(1, int(h * ratio))
-        img = img.resize((max_width, new_h), Image.LANCZOS)
+        ratio = max_width / w  # w is not None here (checked above)
+        new_h = max(1, int((h or 0) * ratio))
+        img = img.resize((max_width, new_h), Image.Resampling.LANCZOS)  # type: ignore[attr-defined]
         buf = io.BytesIO()
         img.save(buf, format="PNG", optimize=True)
         return buf.getvalue()
