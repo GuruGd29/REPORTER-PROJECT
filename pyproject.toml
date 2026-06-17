@@ -10,17 +10,34 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "QA Dashboard Team" }]
+keywords = [
+    "pytest", "dashboard", "qa", "test-report", "html-report",
+    "network-capture", "mitmproxy", "playwright", "selenium",
+    "allure", "static-hosting", "s3", "junit-xml", "har",
+]
 classifiers = [
+    "Development Status :: 4 - Beta",
     "Framework :: Pytest",
+    "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Testing",
+    "Topic :: Software Development :: Quality Assurance",
 ]
+
 dependencies = [
     "pytest>=7.0,<10",
 ]
+
+[project.urls]
+Repository = "https://github.com/GuruGd29/REPORTER-PROJECT"
+"Bug Tracker" = "https://github.com/GuruGd29/REPORTER-PROJECT/issues"
+Changelog = "https://github.com/GuruGd29/REPORTER-PROJECT/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 mitm = ["mitmproxy>=11.0,<13"]
